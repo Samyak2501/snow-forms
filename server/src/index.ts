@@ -92,7 +92,30 @@ async function start() {
       decorateReply: false,
     });
 
-    // 5. Health Check
+    // 5. Root & Health Check Endpoints
+    fastify.get("/", async () => {
+      return {
+        status: "ok",
+        app: "Snow Forms API",
+        institution: "Avantika University",
+        version: "1.0.0",
+        endpoints: {
+          health: "/health",
+          apiHealth: "/api/health",
+          docs: "Snow Forms Backend REST API"
+        },
+        time: new Date().toISOString(),
+      };
+    });
+
+    fastify.get("/health", async () => {
+      return { status: "ok" };
+    });
+
+    fastify.get("/healthz", async () => {
+      return { status: "ok" };
+    });
+
     fastify.get("/api/health", async () => {
       return {
         status: "ok",
