@@ -1098,7 +1098,12 @@ export async function formRoutes(fastify: FastifyInstance) {
     }
 
     const elements = await db
-      .select({ id: schema.formElements.id, type: schema.formElements.type })
+      .select({
+        id: schema.formElements.id,
+        type: schema.formElements.type,
+        title: schema.formElements.title,
+        options: schema.formElements.options,
+      })
       .from(schema.formElements)
       .where(eq(schema.formElements.formId, id));
 
@@ -1108,6 +1113,39 @@ export async function formRoutes(fastify: FastifyInstance) {
 
     if (questionCount === 0) {
       return reply.status(400).send({ error: "Cannot publish: Form must contain at least one question." });
+    }
+
+    // Validate choice-based and grid questions have valid options
+    for (const el of elements) {
+      const qTitle = (el.title || "Untitled Question").replace(/<[^>]*>/g, "").trim();
+      if (["multiple_choice", "checkboxes", "dropdown"].includes(el.type)) {
+        let opts: any[] = [];
+        try {
+          opts = typeof el.options === "string" ? JSON.parse(el.options || "[]") : el.options || [];
+        } catch {
+          opts = [];
+        }
+        const validOpts = Array.isArray(opts) ? opts.filter((o) => o?.text && String(o.text).trim().length > 0) : [];
+        if (validOpts.length === 0) {
+          return reply.status(400).send({
+            error: `Cannot publish: Choice question "${qTitle}" must have at least one option with text.`,
+          });
+        }
+      } else if (["mc_grid", "checkbox_grid"].includes(el.type)) {
+        let grid: any = {};
+        try {
+          grid = typeof el.options === "string" ? JSON.parse(el.options || "{}") : el.options || {};
+        } catch {
+          grid = {};
+        }
+        const rows = Array.isArray(grid.rows) ? grid.rows.filter((r: any) => r?.text && String(r.text).trim().length > 0) : [];
+        const cols = Array.isArray(grid.columns) ? grid.columns.filter((c: any) => c?.text && String(c.text).trim().length > 0) : [];
+        if (rows.length === 0 || cols.length === 0) {
+          return reply.status(400).send({
+            error: `Cannot publish: Grid question "${qTitle}" must have at least one row and one column with text.`,
+          });
+        }
+      }
     }
 
     let formSettings: any = {};

@@ -33,7 +33,7 @@ import {
  DndContext,
  closestCenter,
  KeyboardSensor,
- PointerSensor,
+ MouseSensor,
  TouchSensor,
  useSensor,
  useSensors,
@@ -134,17 +134,17 @@ export const FormEditorPage: React.FC = () => {
  // Drag and drop state
  const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
- // dnd-kit sensors with distance constraint so clicks/inputs work without dragging
+ // dnd-kit sensors: MouseSensor for instant desktop drag, TouchSensor with hold constraint to prevent accidental scrolling drag
  const sensors = useSensors(
- useSensor(PointerSensor, {
+ useSensor(MouseSensor, {
  activationConstraint: {
- distance: 4,
+ distance: 8,
  },
  }),
  useSensor(TouchSensor, {
  activationConstraint: {
- delay: 200,
- tolerance: 5,
+ delay: 250,
+ tolerance: 6,
  },
  }),
  useSensor(KeyboardSensor, {
@@ -311,20 +311,20 @@ export const FormEditorPage: React.FC = () => {
  description:"",
  isRequired: false,
  points: form?.isQuiz ? 1 : 0,
- options: ["mc_grid","checkbox_grid"].includes(type)
- ? JSON.stringify({
- rows: [
- { id:"row_1", text:"Row 1"},
- { id:"row_2", text:"Row 2"},
- ],
- columns: [
- { id:"col_1", text:"Column 1"},
- { id:"col_2", text:"Column 2"},
- ],
- })
- : ["multiple_choice","checkboxes","dropdown"].includes(type)
- ? JSON.stringify([{ id:"opt_1", text:"Option 1"}])
- :"[]",
+        options: ["mc_grid", "checkbox_grid"].includes(type)
+          ? JSON.stringify({
+              rows: [
+                { id: "row_1", text: "" },
+                { id: "row_2", text: "" },
+              ],
+              columns: [
+                { id: "col_1", text: "" },
+                { id: "col_2", text: "" },
+              ],
+            })
+          : ["multiple_choice", "checkboxes", "dropdown"].includes(type)
+          ? JSON.stringify([{ id: "opt_1", text: "" }])
+          : "[]",
  scaleSettings: type ==="rating"
  ? JSON.stringify({ max: 5, icon:"star"})
  : type ==="linear_scale"
@@ -443,6 +443,38 @@ export const FormEditorPage: React.FC = () => {
 
  const handlePublish = async () => {
  if (!id) return;
+
+ // Pre-publish validation for question options
+ for (const el of elements) {
+ const qTitle = stripHtml(el.title || "Untitled Question").trim() || "Untitled Question";
+ if (["multiple_choice", "checkboxes", "dropdown"].includes(el.type)) {
+ let opts: any[] = [];
+ try {
+ opts = typeof el.options === "string" ? JSON.parse(el.options || "[]") : el.options || [];
+ } catch {
+ opts = [];
+ }
+ const valid = Array.isArray(opts) ? opts.filter((o) => o?.text && String(o.text).trim().length > 0) : [];
+ if (valid.length === 0) {
+ alert(`Cannot publish: Question "${qTitle}" needs at least one option with text.`);
+ return;
+ }
+ } else if (["mc_grid", "checkbox_grid"].includes(el.type)) {
+ let grid: any = {};
+ try {
+ grid = typeof el.options === "string" ? JSON.parse(el.options || "{}") : el.options || {};
+ } catch {
+ grid = {};
+ }
+ const rows = Array.isArray(grid.rows) ? grid.rows.filter((r: any) => r?.text && String(r.text).trim().length > 0) : [];
+ const cols = Array.isArray(grid.columns) ? grid.columns.filter((c: any) => c?.text && String(c.text).trim().length > 0) : [];
+ if (rows.length === 0 || cols.length === 0) {
+ alert(`Cannot publish: Grid question "${qTitle}" needs at least one row and one column with text.`);
+ return;
+ }
+ }
+ }
+
  setPublishing(true);
 
  try {
@@ -541,10 +573,10 @@ export const FormEditorPage: React.FC = () => {
  return (
  <div className="min-h-screen bg-alabaster text-foreground">
  {/* Top Navbar */}
- <header className="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-border px-4 py-2.5">
- <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+ <header className="sticky top-0 z-40 bg-white/95 backdrop-blur border-b border-border px-3 sm:px-4 py-2 sm:py-2.5">
+ <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-4">
  {/* Left: Back + Form Title */}
- <div className="flex items-center gap-3 flex-1 min-w-0">
+ <div className="flex items-center gap-1.5 sm:gap-3 flex-1 min-w-0">
  <Link
  to="/dashboard"
  className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg hover:bg-neutral-100 transition"
@@ -553,7 +585,7 @@ export const FormEditorPage: React.FC = () => {
  <ArrowLeft className="w-5 h-5"/>
  </Link>
 
- <img src="/snowdevs.png"alt="Snow Devs Logo"className="w-7 h-7 object-contain hidden sm:block"/>
+ <img src="/snowdevs.png" alt="Snow Devs Logo" className="w-7 h-7 object-contain hidden sm:block shrink-0" />
 
  <div className="flex-1 min-w-0">
  <input
@@ -573,7 +605,7 @@ export const FormEditorPage: React.FC = () => {
  setHeaderTitle(val);
  handleUpdateForm({ title: val });
  }}
- className="text-base sm:text-lg font-bold bg-transparent border-b border-transparent hover:border-neutral-300 focus:border-flamingo px-1 py-0.5 focus:outline-none transition truncate max-w-sm sm:max-w-md"
+ className="w-full min-w-0 text-sm sm:text-lg font-bold bg-transparent border-b border-transparent hover:border-neutral-300 focus:border-flamingo px-1 py-0.5 focus:outline-none transition truncate"
  />
  </div>
 
@@ -624,7 +656,7 @@ export const FormEditorPage: React.FC = () => {
  {form.status ==="draft"? (
  <>
  {/* Draft Status Badge */}
- <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-amber-50 text-amber-600 border border-amber-200">
+ <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 text-[11px] sm:text-xs font-bold rounded-lg bg-amber-50 text-amber-600 border border-amber-200">
  Draft
  </span>
 
@@ -642,7 +674,7 @@ export const FormEditorPage: React.FC = () => {
  <button
  onClick={handlePublish}
  disabled={publishing}
- className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold text-white bg-flamingo hover:bg-flamingo-600 rounded-lg shadow-sm shadow-flamingo/20 transition active:scale-95 disabled:opacity-50"
+ className="inline-flex items-center gap-1 px-3 sm:px-4 py-1 sm:py-1.5 text-xs font-bold text-white bg-flamingo hover:bg-flamingo-600 rounded-lg shadow-sm shadow-flamingo/20 transition active:scale-95 disabled:opacity-50"
  >
  <Sparkles className="w-3.5 h-3.5"/>
  <span>{publishing ?"Publishing...":"Publish"}</span>
@@ -652,12 +684,12 @@ export const FormEditorPage: React.FC = () => {
  <>
  {/* Status Badge: Closed takes priority over Published */}
  {form.status ==="closed"|| form.formSettings?.acceptingResponses === false || form.isAcceptingResponses === false ? (
- <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-rose-50 text-rose-600 border border-rose-200 flex items-center gap-1.5">
+ <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 text-[11px] sm:text-xs font-bold rounded-lg bg-rose-50 text-rose-600 border border-rose-200 flex items-center gap-1">
  <span className="w-1.5 h-1.5 rounded-full bg-rose-500"/>
  Closed
  </span>
  ) : (
- <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center gap-1.5">
+ <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 text-[11px] sm:text-xs font-bold rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center gap-1">
  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"/>
  Published
  </span>
@@ -666,7 +698,7 @@ export const FormEditorPage: React.FC = () => {
  {/* Share Button (opens real public share modal) */}
  <button
  onClick={() => setShowShareModal(true)}
- className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-flamingo hover:bg-flamingo-600 rounded-lg shadow-sm shadow-flamingo/20 transition active:scale-95"
+ className="inline-flex items-center gap-1 px-3 sm:px-3.5 py-1 sm:py-1.5 text-xs font-semibold text-white bg-flamingo hover:bg-flamingo-600 rounded-lg shadow-sm shadow-flamingo/20 transition active:scale-95"
  >
  <Share2 className="w-3.5 h-3.5"/>
  <span>Share</span>
@@ -727,7 +759,7 @@ export const FormEditorPage: React.FC = () => {
  </header>
 
  {/* Main Tab Views */}
- <main className="max-w-5xl mx-auto px-4 py-8 relative">
+ <main className="max-w-5xl mx-auto px-3 sm:px-4 py-6 sm:py-8 pb-28 sm:pb-12 relative">
  {activeTab ==="questions"&& (
  <div className="flex items-start gap-4">
  {/* Questions Canvas */}

@@ -103,6 +103,7 @@ export const LoginPage: React.FC = () => {
  const [resendingOtp, setResendingOtp] = useState(false);
  const [resendNotice, setResendNotice] = useState<string | null>(null);
  const [error, setError] = useState<AuthErrorState | null>(null);
+ const resetSuccess = searchParams.get("reset") === "success";
 
  const handleLogin = async (e: React.FormEvent) => {
  e.preventDefault();
@@ -152,6 +153,13 @@ export const LoginPage: React.FC = () => {
  Sign in with your Avantika University account
  </p>
  </div>
+
+ {resetSuccess && (
+ <div className="mb-6 p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm flex items-start gap-2.5 animate-in fade-in">
+ <CheckCircle2 className="w-5 h-5 flex-shrink-0 text-emerald-600 mt-0.5" />
+ <div>Password reset successfully! You can now log in with your new password.</div>
+ </div>
+ )}
 
  {error && (
  <div className="mb-6 p-3.5 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm flex flex-col gap-2 animate-in fade-in">

@@ -15,6 +15,47 @@ import { hashPassword } from "better-auth/crypto";
 import crypto from "crypto";
 import { getOAuthConsentUrl, exchangeOAuthCode } from "../services/gmail.js";
 
+export function validatePasswordStrength(password: string): { valid: boolean; error?: string } {
+  if (!password || password.length < 8) {
+    return { valid: false, error: "Password must be at least 8 characters long." };
+  }
+  if (!/[a-zA-Z]/.test(password)) {
+    return { valid: false, error: "Password must contain at least one letter." };
+  }
+  if (!/[0-9]/.test(password)) {
+    return { valid: false, error: "Password must contain at least one number." };
+  }
+  if (/^\d+$/.test(password)) {
+    return { valid: false, error: "Numeric-only passwords are not allowed. Please include letters." };
+  }
+  const commonWeak = new Set([
+    "password", "password1", "password123", "12345678", "123456789",
+    "1234466789", "1234567890", "01234567", "qwerty123", "admin123",
+    "welcome1", "letmein1", "avantika123", "snowforms123", "student123",
+    "password@123", "admin@123"
+  ]);
+  if (commonWeak.has(password.toLowerCase().trim())) {
+    return { valid: false, error: "This password is too common or weak. Please choose a stronger password." };
+  }
+  if (/^(.)\1+$/.test(password)) {
+    return { valid: false, error: "Password cannot consist of a single repeated character." };
+  }
+  return { valid: true };
+}
+
+const passwordRule = z
+  .string()
+  .min(8, "Password must be at least 8 characters long")
+  .superRefine((val, ctx) => {
+    const check = validatePasswordStrength(val);
+    if (!check.valid) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: check.error || "Password does not meet strength requirements",
+      });
+    }
+  });
+
 export async function authRoutes(fastify: FastifyInstance) {
   // 1. Better Auth catch-all route for standard Better Auth endpoints
   fastify.route({
@@ -125,7 +166,7 @@ export async function authRoutes(fastify: FastifyInstance) {
     const schemaZ = z.object({
       email: z.string().email(),
       tempToken: z.string().min(10),
-      password: z.string().min(8, "Password must be at least 8 characters"),
+      password: passwordRule,
       name: z.string().min(2, "Name must be at least 2 characters"),
     });
 
@@ -195,7 +236,7 @@ export async function authRoutes(fastify: FastifyInstance) {
     const schemaZ = z.object({
       email: z.string().email(),
       tempToken: z.string().min(10),
-      password: z.string().min(8, "Password must be at least 8 characters"),
+      password: passwordRule,
     });
 
     const parsed = schemaZ.safeParse(request.body);

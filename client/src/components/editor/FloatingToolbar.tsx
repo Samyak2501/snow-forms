@@ -24,7 +24,7 @@ export const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
  onAddSection,
 }) => {
  return (
- <div className="fixed sm:sticky right-4 sm:right-auto bottom-6 sm:bottom-auto sm:top-28 z-40 flex sm:flex-col items-center gap-1.5 p-1.5 bg-white border border-neutral-200 rounded-2xl shadow-xl shadow-neutral-200/50">
+ <div className="fixed sm:sticky bottom-4 sm:bottom-auto left-1/2 -translate-x-1/2 sm:translate-x-0 sm:left-auto sm:right-auto sm:top-28 z-40 flex sm:flex-col items-center gap-1 sm:gap-1.5 p-1.5 bg-white/95 sm:bg-white backdrop-blur sm:backdrop-blur-none border border-neutral-200 rounded-2xl shadow-xl shadow-neutral-400/20 max-w-[calc(100vw-32px)]">
  <button
  onClick={() => onAddQuestion("multiple_choice")}
  title="Add Question"

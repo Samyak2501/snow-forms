@@ -144,6 +144,12 @@ export const api = {
         body: JSON.stringify({ email, tempToken, password, name }),
       }),
 
+    resetPassword: (email: string, tempToken: string, password: string) =>
+      request<{ success: boolean; message: string }>("/api/auth/otp/reset-password", {
+        method: "POST",
+        body: JSON.stringify({ email, tempToken, password }),
+      }),
+
     login: async (email: string, password: string) => {
       return request<{ user: User; session: any }>("/api/auth/sign-in/email", {
         method: "POST",

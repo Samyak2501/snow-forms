@@ -206,9 +206,10 @@ export const PublicFormPage: React.FC = () => {
  const val = answers[el.id];
 
  if (el.type ==="mc_grid") {
- const gridConfig = parseGridConfig(el.options);
+ const rawGrid = parseGridConfig(el.options);
+ const gridRows = rawGrid.rows.filter((r) => r.text && r.text.trim().length > 0);
  const gridAns = val && typeof val ==="object"? val : {};
- const allAnswered = gridConfig.rows.every(
+ const allAnswered = gridRows.every(
  (r) => gridAns[r.text] !== undefined && gridAns[r.text] !== null && gridAns[r.text] !==""
  );
  if (!allAnswered) {
@@ -221,9 +222,10 @@ export const PublicFormPage: React.FC = () => {
  }
 
  if (el.type ==="checkbox_grid") {
- const gridConfig = parseGridConfig(el.options);
+ const rawGrid = parseGridConfig(el.options);
+ const gridRows = rawGrid.rows.filter((r) => r.text && r.text.trim().length > 0);
  const gridAns = val && typeof val ==="object"? val : {};
- const allAnswered = gridConfig.rows.every(
+ const allAnswered = gridRows.every(
  (r) => Array.isArray(gridAns[r.text]) && gridAns[r.text].length > 0
  );
  if (!allAnswered) {
@@ -589,13 +591,17 @@ export const PublicFormPage: React.FC = () => {
  {/* Questions & Content Blocks for Current Section */}
  <div key={formResetKey} className="space-y-4">
  {elementsForCurrentSection.map((el) => {
- // Parse options for choice questions
- let optionsList: any[] = [];
- try {
- optionsList = typeof el.options ==="string"? JSON.parse(el.options ||"[]") : el.options || [];
- } catch {
- optionsList = [];
- }
+  // Parse options for choice questions
+  let optionsList: any[] = [];
+  try {
+    optionsList = typeof el.options === "string" ? JSON.parse(el.options || "[]") : el.options || [];
+  } catch {
+    optionsList = [];
+  }
+  // Ignore empty option entries for form fillers
+  optionsList = (Array.isArray(optionsList) ? optionsList : []).filter(
+    (opt) => opt && typeof opt.text === "string" && opt.text.trim().length > 0
+  );
 
  let scaleSettings = { min: 1, max: 5, minLabel:"", maxLabel:""};
  try {
@@ -788,18 +794,6 @@ export const PublicFormPage: React.FC = () => {
                 </div>
               )}
 
- {/* Question Image Attachment */}
- {el.mediaUrl && (
- <div className="my-3 flex justify-center max-w-full overflow-hidden rounded-xl bg-neutral-50 border border-neutral-200">
- <img
- src={el.mediaUrl}
- alt={stripHtml(el.title) ||"Question image"}
- className="max-h-80 w-auto max-w-full rounded-xl object-contain"
- loading="lazy"
- />
- </div>
- )}
-
  {/* 1. Short Answer */}
  {el.type ==="short_answer"&& (
  <input
@@ -976,7 +970,11 @@ export const PublicFormPage: React.FC = () => {
 
  {/* 7 & 8. Multiple Choice Grid & Checkbox Grid */}
  {["mc_grid","checkbox_grid"].includes(el.type) && (() => {
- const grid = parseGridConfig(el.options);
+ const rawGrid = parseGridConfig(el.options);
+ const grid = {
+ rows: rawGrid.rows.filter((r) => r.text && r.text.trim().length > 0),
+ columns: rawGrid.columns.filter((c) => c.text && c.text.trim().length > 0),
+ };
  return (
  <div className="overflow-x-auto pb-2 -mx-2 px-2">
  <table className="w-full text-xs min-w-[320px]">

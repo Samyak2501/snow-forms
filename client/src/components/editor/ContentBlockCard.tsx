@@ -194,14 +194,17 @@ export const ContentBlockCard: React.FC<ContentBlockCardProps> = ({
  :"border-neutral-200 hover:border-neutral-300"
  } p-5 sm:p-6 mb-4`}
  >
- {/* Top Drag Handle */}
- <div
+ {/* Top Drag Handle (isolated button so only the 6-dot icon activates drag) */}
+ <div className="flex items-center justify-center -mt-3 mb-2 select-none">
+ <button
+ type="button"
  {...dragHandleProps}
- className="flex items-center justify-center -mt-3 mb-2 cursor-grab active:cursor-grabbing text-neutral-400 hover:text-flamingo transition select-none touch-none"
- title="Drag to reorder block"
- aria-label="Drag to reorder block"
+ className="inline-flex items-center justify-center p-1 px-3 rounded-md cursor-grab active:cursor-grabbing text-neutral-400 hover:text-flamingo hover:bg-neutral-100 transition select-none touch-none"
+ title="Drag to reorder block (press & hold on touch)"
+ aria-label="Drag handle to reorder block"
  >
  <GripVertical className="w-5 h-5 rotate-90"/>
+ </button>
  </div>
 
  {/* Block Type Indicator & Alignment Toolbar */}

@@ -90,6 +90,7 @@ export const App: React.FC = () => {
                     <Route path="/signup" element={<SignupPage />} />
                     <Route path="/verify-otp" element={<VerifyOtpPage />} />
                     <Route path="/set-password" element={<SetPasswordPage />} />
+                    <Route path="/reset-password-confirm" element={<SetPasswordPage isReset />} />
                     <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
                     <Route

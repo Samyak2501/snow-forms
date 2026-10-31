@@ -47,13 +47,13 @@ export const parseGridConfig = (options: any): GridConfig => {
     if (Array.isArray(parsed.rows)) {
       rows = parsed.rows.map((r: any, idx: number) => ({
         id: r?.id || `row_${idx + 1}`,
-        text: typeof r === "string" ? r : (r?.text ?? `Row ${idx + 1}`),
+        text: typeof r === "string" ? r : (r?.text ?? ""),
       }));
     }
     if (Array.isArray(parsed.columns)) {
       columns = parsed.columns.map((c: any, idx: number) => ({
         id: c?.id || `col_${idx + 1}`,
-        text: typeof c === "string" ? c : (c?.text ?? `Column ${idx + 1}`),
+        text: typeof c === "string" ? c : (c?.text ?? ""),
       }));
     }
   }
@@ -61,14 +61,14 @@ export const parseGridConfig = (options: any): GridConfig => {
   // Fallback defaults if empty or not a grid config
   if (rows.length === 0) {
     rows = [
-      { id: "row_1", text: "Row 1" },
-      { id: "row_2", text: "Row 2" },
+      { id: "row_1", text: "" },
+      { id: "row_2", text: "" },
     ];
   }
   if (columns.length === 0) {
     columns = [
-      { id: "col_1", text: "Column 1" },
-      { id: "col_2", text: "Column 2" },
+      { id: "col_1", text: "" },
+      { id: "col_2", text: "" },
     ];
   }
 
@@ -223,11 +223,11 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
     optionsList = typeof element.options === "string" ? JSON.parse(element.options || "[]") : element.options || [];
     if (!Array.isArray(optionsList) || optionsList.length === 0) {
       if (["multiple_choice", "checkboxes", "dropdown"].includes(element.type)) {
-        optionsList = [{ id: "opt_1", text: "Option 1" }];
+        optionsList = [{ id: "opt_1", text: "" }];
       }
     }
   } catch {
-    optionsList = [{ id: "opt_1", text: "Option 1" }];
+    optionsList = [{ id: "opt_1", text: "" }];
   }
 
   // Parse linear scale settings
@@ -264,10 +264,9 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
   };
 
   const handleAddRow = () => {
-    const nextIdx = gridConfig.rows.length + 1;
     const updatedRows = [
       ...gridConfig.rows,
-      { id: `row_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`, text: `Row ${nextIdx}` },
+      { id: `row_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`, text: "" },
     ];
     onChange({ options: JSON.stringify({ ...gridConfig, rows: updatedRows }) });
   };
@@ -285,10 +284,9 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
   };
 
   const handleAddColumn = () => {
-    const nextIdx = gridConfig.columns.length + 1;
     const updatedCols = [
       ...gridConfig.columns,
-      { id: `col_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`, text: `Column ${nextIdx}` },
+      { id: `col_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`, text: "" },
     ];
     onChange({ options: JSON.stringify({ ...gridConfig, columns: updatedCols }) });
   };
@@ -307,7 +305,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
       updates.options = JSON.stringify(currentConfig);
     } else if (["multiple_choice", "checkboxes", "dropdown"].includes(newType)) {
       if (!Array.isArray(optionsList) || optionsList.length === 0) {
-        updates.options = JSON.stringify([{ id: `opt_${Date.now()}`, text: "Option 1" }]);
+        updates.options = JSON.stringify([{ id: `opt_${Date.now()}`, text: "" }]);
       }
     } else if (newType === "rating") {
       updates.scaleSettings = JSON.stringify({
@@ -343,8 +341,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
   } catch {}
 
   const handleAddOption = () => {
-    const nextIdx = optionsList.length + 1;
-    const newOptions = [...optionsList, { id: `opt_${Date.now()}`, text: `Option ${nextIdx}` }];
+    const newOptions = [...optionsList, { id: `opt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`, text: "" }];
     onChange({ options: JSON.stringify(newOptions) });
   };
 
@@ -369,14 +366,17 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
           : "border-neutral-200 hover:border-neutral-300"
       } p-5 sm:p-6 mb-4`}
     >
-      {/* Top Drag Handle */}
-      <div
-        {...dragHandleProps}
-        className="flex items-center justify-center -mt-3 mb-2 cursor-grab active:cursor-grabbing text-neutral-400 hover:text-flamingo transition select-none touch-none"
-        title="Drag to reorder question"
-        aria-label="Drag to reorder question"
-      >
-        <GripVertical className="w-5 h-5 rotate-90" />
+      {/* Top Drag Handle (isolated button so only the 6-dot icon activates drag) */}
+      <div className="flex items-center justify-center -mt-3 mb-2 select-none">
+        <button
+          type="button"
+          {...dragHandleProps}
+          className="inline-flex items-center justify-center p-1 px-3 rounded-md cursor-grab active:cursor-grabbing text-neutral-400 hover:text-flamingo hover:bg-neutral-100 transition select-none touch-none"
+          title="Drag to reorder question (press & hold on touch)"
+          aria-label="Drag handle to reorder question"
+        >
+          <GripVertical className="w-5 h-5 rotate-90" />
+        </button>
       </div>
 
       {/* Header: Title Input + Question Image Attachment Button + Question Type Dropdown */}
@@ -527,7 +527,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
                   type="text"
                   value={opt.text}
                   onChange={(e) => handleUpdateOption(idx, e.target.value)}
-                  placeholder={`Option ${idx + 1}`}
+                  placeholder="Enter option"
                   className="flex-1 text-xs sm:text-sm bg-transparent border-b border-transparent focus:border-flamingo py-1 focus:outline-none"
                 />
 
@@ -727,7 +727,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
                         type="text"
                         value={row.text}
                         onChange={(e) => handleUpdateRow(idx, e.target.value)}
-                        placeholder={`Row ${idx + 1}`}
+                        placeholder="Enter row"
                         className="flex-1 text-xs px-3 py-1.5 bg-white border border-neutral-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-flamingo"
                       />
                       {gridConfig.rows.length > 1 && (
@@ -780,7 +780,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
                         type="text"
                         value={col.text}
                         onChange={(e) => handleUpdateColumn(idx, e.target.value)}
-                        placeholder={`Column ${idx + 1}`}
+                        placeholder="Enter column"
                         className="flex-1 text-xs px-3 py-1.5 bg-white border border-neutral-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-flamingo"
                       />
                       {gridConfig.columns.length > 1 && (
