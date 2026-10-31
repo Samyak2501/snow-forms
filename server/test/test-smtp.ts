@@ -25,7 +25,7 @@ async function verifySmtp() {
     secure: port === 465, // false for 587
     auth: {
       user,
-      pass,
+      pass: (pass || "").replace(/\s+/g, ""),
     },
     tls: {
       rejectUnauthorized: false,

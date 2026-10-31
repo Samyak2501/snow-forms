@@ -1,6 +1,6 @@
-# AU Forms — Master Implementation for Avantika University
+# Snow Forms — Master Implementation for Avantika University
 
-**AU Forms** is a production-minded web application engineered for **Avantika University, Ujjain, Madhya Pradesh, India**. It replaces reliance on Google Forms for event registrations, surveys, feedback questionnaires, student evaluations, and graded quizzes with a self-hosted, university-branded data collection platform.
+**Snow Forms** is a production-minded web application engineered for **Avantika University, Ujjain, Madhya Pradesh, India**. It replaces reliance on Google Forms for event registrations, surveys, feedback questionnaires, student evaluations, and graded quizzes with a self-hosted, university-branded data collection platform.
 
 ---
 
@@ -63,14 +63,14 @@ In compliance with Phase 1 requirements, the Better Auth, Drizzle ORM, `@libsql/
 | **Password Verification** | **VERIFIED** | Password hashing & `auth.api.signInEmail` verified against Turso |
 | **Session Persistence** | **VERIFIED** | Session token stored in Turso `session` table; verified via `auth.api.getSession` |
 | **Session Revocation** | **VERIFIED** | `auth.api.signOut` invalidates session token in Turso immediately |
-| **Schema Coexistence** | **VERIFIED** | Better Auth auth tables and AU Forms application tables (`forms`, `elements`, `responses`) coexist in the same database without conflicts |
+| **Schema Coexistence** | **VERIFIED** | Better Auth auth tables and Snow Forms application tables (`forms`, `elements`, `responses`) coexist in the same database without conflicts |
 | **Server Restart Persistence** | **VERIFIED** | Restarting the server does not erase data; all forms and sessions remain persisted |
 
 ---
 
 ## 3. College Email Signup & OTP Security Flow
 
-AU Forms implements the exact requested 3-step security journey for Avantika University members:
+Snow Forms implements the exact requested 3-step security journey for Avantika University members:
 
 1. **Step 1 — Email Domain Check:** User enters Name and College Email. Server normalizes the email and validates that the domain is `@avantika.edu.in`. Non-college emails are rejected immediately.
 2. **Step 2 — 6-Digit Single-Use OTP:** 
@@ -90,9 +90,9 @@ AU Forms implements the exact requested 3-step security journey for Avantika Uni
 
 ## 4. Google Forms Feature Parity Matrix
 
-AU Forms achieves feature parity with Google Forms for core campus operations:
+Snow Forms achieves feature parity with Google Forms for core campus operations:
 
-| Google Forms Capability | AU Forms Implementation Status | Description |
+| Google Forms Capability | Snow Forms Implementation Status | Description |
 |---|---|---|
 | **Short Answer** | **Implemented** | Single-line text with length, email, URL, regex validation |
 | **Paragraph** | **Implemented** | Multi-line text for open-ended qualitative feedback |
@@ -148,7 +148,7 @@ SMTP_HOST="smtp.gmail.com"
 SMTP_PORT=587
 SMTP_USER="samyak.jain1@avantika.edu.in"
 SMTP_PASSWORD="<your_gmail_app_password>"
-EMAIL_FROM="AU Forms <samyak.jain1@avantika.edu.in>"
+EMAIL_FROM="Snow Forms <samyak.jain1@avantika.edu.in>"
 COLLEGE_EMAIL_DOMAIN="avantika.edu.in"
 ```
 
@@ -215,6 +215,6 @@ This tests:
 ## 7. Deferred Features & Known Limitations
 
 - **Chromebook Locked Mode:** Requires Google Workspace for Education domain-level device management APIs.
-- **Google Apps Script:** Native Google Apps Script execution is proprietary to Google Drive; replaced by AU Forms' native REST API.
+- **Google Apps Script:** Native Google Apps Script execution is proprietary to Google Drive; replaced by Snow Forms' native REST API.
 - **Third-Party Payment Gateways:** Explicitly excluded from this initial release per prompt specification; architecture is structured to support a future payment plugin.
 - **Cloud Object Storage (S3/GCS) for Massive File Uploads:** Current implementation supports local attachment metadata and up to 10MB payload handling. Production multi-gigabyte uploads will attach to S3/Cloudflare R2 pre-signed URLs in a subsequent deployment.

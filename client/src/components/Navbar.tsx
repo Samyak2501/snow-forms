@@ -6,29 +6,15 @@ import {
   LayoutDashboard,
   LogOut,
   User as UserIcon,
-  Moon,
-  Sun,
   Menu,
   X,
-  FileText,
 } from "lucide-react";
 
 export const Navbar: React.FC = () => {
-  const { user, logout } = useAuth();
+  const { user, loading, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains("dark"));
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  const toggleDarkMode = () => {
-    if (isDark) {
-      document.documentElement.classList.remove("dark");
-      setIsDark(false);
-    } else {
-      document.documentElement.classList.add("dark");
-      setIsDark(true);
-    }
-  };
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -36,37 +22,30 @@ export const Navbar: React.FC = () => {
     <header className="sticky top-0 z-50 w-full border-b border-border/80 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         {/* Brand Logo & Name */}
-        <Link to="/" className="flex items-center gap-3 group focus:outline-none focus:ring-2 focus:ring-flamingo rounded-lg p-1">
+        <Link
+          to={user ? "/dashboard" : "/"}
+          className="flex items-center gap-3 group focus:outline-none focus:ring-2 focus:ring-flamingo rounded-lg p-1"
+        >
           <img
-            src="/avantika-logo.svg"
-            alt="Avantika University Logo"
+            src="/snowdevs.png"
+            alt="Snow Devs Logo"
             className="h-10 w-10 object-contain transition-transform group-hover:scale-105"
           />
-          <div className="flex flex-col">
-            <div className="flex items-center gap-1.5">
-              <span className="font-extrabold text-xl tracking-tight text-neutral-900 dark:text-white">
-                AU<span className="text-flamingo">Forms</span>
-              </span>
-              <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-flamingo/10 text-flamingo border border-flamingo/20">
-                Univ
-              </span>
-            </div>
-            <span className="text-[11px] text-muted-foreground hidden sm:inline -mt-0.5 font-medium">
-              Avantika University &bull; Ujjain
-            </span>
-          </div>
+          <span className="font-extrabold text-xl tracking-tight text-neutral-900">
+            Snow <span className="text-flamingo">Forms</span>
+          </span>
         </Link>
 
         {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center gap-1 sm:gap-2">
-          {user ? (
+          {loading ? null : user ? (
             <>
               <Link
                 to="/dashboard"
                 className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
                   isActive("/dashboard")
                     ? "bg-flamingo/10 text-flamingo font-semibold"
-                    : "text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                    : "text-neutral-700 hover:bg-neutral-100"
                 }`}
               >
                 <LayoutDashboard className="w-4 h-4" />
@@ -85,7 +64,7 @@ export const Navbar: React.FC = () => {
             <>
               <Link
                 to="/login"
-                className="px-3 py-2 rounded-lg text-sm font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                className="px-3 py-2 rounded-lg text-sm font-medium text-neutral-700 hover:bg-neutral-100"
               >
                 Sign In
               </Link>
@@ -98,21 +77,12 @@ export const Navbar: React.FC = () => {
             </>
           )}
 
-          {/* Dark Mode Toggle */}
-          <button
-            onClick={toggleDarkMode}
-            title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
-            className="p-2 ml-1 text-muted-foreground hover:text-foreground rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
-          >
-            {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
-          </button>
-
           {/* User Profile & Logout */}
           {user && (
             <div className="flex items-center gap-2 ml-2 pl-2 border-l border-border">
               <Link
                 to="/profile"
-                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors text-neutral-800 dark:text-neutral-200"
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-sm font-medium hover:bg-neutral-100 transition-colors text-neutral-800"
               >
                 <div className="w-7 h-7 rounded-full bg-flamingo/15 text-flamingo font-bold flex items-center justify-center text-xs">
                   {user.name.charAt(0).toUpperCase()}
@@ -133,14 +103,8 @@ export const Navbar: React.FC = () => {
         {/* Mobile menu button */}
         <div className="md:hidden flex items-center gap-2">
           <button
-            onClick={toggleDarkMode}
-            className="p-2 text-muted-foreground rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
-          >
-            {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
-          </button>
-          <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="p-2 text-muted-foreground rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            className="p-2 text-muted-foreground rounded-lg hover:bg-neutral-100"
           >
             {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
@@ -150,9 +114,9 @@ export const Navbar: React.FC = () => {
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
         <div className="md:hidden border-b border-border bg-background p-4 space-y-3">
-          {user ? (
+          {loading ? null : user ? (
             <>
-              <div className="flex items-center gap-3 p-2 bg-neutral-50 dark:bg-neutral-900 rounded-lg">
+              <div className="flex items-center gap-3 p-2 bg-neutral-50 rounded-lg">
                 <div className="w-9 h-9 rounded-full bg-flamingo/20 text-flamingo font-bold flex items-center justify-center">
                   {user.name.charAt(0).toUpperCase()}
                 </div>
@@ -164,7 +128,7 @@ export const Navbar: React.FC = () => {
               <Link
                 to="/dashboard"
                 onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg text-neutral-800 hover:bg-neutral-100"
               >
                 <LayoutDashboard className="w-4 h-4" />
                 Dashboard
@@ -180,7 +144,7 @@ export const Navbar: React.FC = () => {
               <Link
                 to="/profile"
                 onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg text-neutral-800 dark:text-neutral-200"
+                className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg text-neutral-800"
               >
                 <UserIcon className="w-4 h-4" />
                 Profile Settings

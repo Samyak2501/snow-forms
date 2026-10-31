@@ -1,9 +1,12 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { db, schema } from "../db/index.js";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, or, sql } from "drizzle-orm";
 import { fromNodeHeaders } from "better-auth/node";
 import { auth } from "../auth/index.js";
 import crypto from "crypto";
+
+// In-memory mutex tracking in-flight submissions per (formId:normalizedEmail) to prevent race conditions
+const activeSubmissions = new Set<string>();
 
 export async function submissionRoutes(fastify: FastifyInstance) {
   // 1. Get Public Form Data for Respondents
@@ -22,28 +25,37 @@ export async function submissionRoutes(fastify: FastifyInstance) {
 
     const form = formRecords[0];
 
+    // Parse form settings first
+    let parsedSettings: any = {};
+    try {
+      parsedSettings = JSON.parse(form.formSettings || "{}");
+    } catch {
+      parsedSettings = {};
+    }
+
     // Check optional authenticated respondent
     const headers = fromNodeHeaders(request.headers);
     const session = await auth.api.getSession({ headers });
     const isOwner = session?.user?.id === form.ownerId;
 
-    // If draft and not owner, return 404
-    if (form.status === "draft" && !isOwner) {
-      return reply.status(404).send({
-        error: "This form is currently a draft and has not been published yet.",
-        isDraft: true,
-      });
+    // Security: Unpublished drafts are private to owner and must never leak to anonymous respondents
+    if (form.status === "draft") {
+      if (!isOwner) {
+        return reply.status(404).send({
+          error: "This form is currently an unpublished draft and is not accessible to the public.",
+          isDraft: true,
+        });
+      }
     }
 
-    // Check open & close time limits
+    // Check response collection status (separate from publication status!)
     const now = new Date();
-    let isClosed = form.status === "closed" || form.status === "archived";
+    let isClosed = false;
     let closedReason = "";
 
-    if (form.status === "closed") {
-      closedReason = "This form has been manually closed by the organizer.";
-    } else if (form.status === "archived") {
-      closedReason = "This form has been archived and is no longer accepting responses.";
+    if (parsedSettings.acceptingResponses === false || form.status === "closed") {
+      isClosed = true;
+      closedReason = parsedSettings.closedMessage || "This form is no longer accepting responses.";
     } else if (form.opensAt && form.opensAt > now) {
       isClosed = true;
       closedReason = `This form is not open yet. It will open on ${form.opensAt.toLocaleString()}.`;
@@ -52,7 +64,7 @@ export async function submissionRoutes(fastify: FastifyInstance) {
       closedReason = `This form was closed on ${form.closesAt.toLocaleString()}.`;
     }
 
-    // Check response limits
+    // Check response capacity limits
     if (!isClosed && form.maxResponses) {
       const responseCountRes = await db
         .select({ count: sql<number>`count(*)` })
@@ -65,35 +77,55 @@ export async function submissionRoutes(fastify: FastifyInstance) {
       }
     }
 
-    // Parse form settings
-    let parsedSettings: any = {};
-    try {
-      parsedSettings = JSON.parse(form.formSettings || "{}");
-    } catch {
-      parsedSettings = {};
-    }
+    // Check authentication requirements
+    const requireCollegeLogin = Boolean(parsedSettings.requireCollegeLogin);
+    const limitOneResponse = Boolean(parsedSettings.limitOneResponse);
 
-    // Check college domain restriction
-    if (parsedSettings.requireCollegeLogin && !session?.user) {
+    if ((requireCollegeLogin || limitOneResponse) && !session?.user) {
+      const message = requireCollegeLogin
+        ? "This form is restricted to Avantika University accounts. Please sign in with your campus email (@avantika.edu.in) to continue."
+        : "This form is limited to 1 response per person. Please sign in to submit your response.";
+
       return reply.send({
         id: form.id,
         publicId: form.publicId,
         title: form.title,
         requiresAuth: true,
-        message: "This form requires signing in with an Avantika University account.",
+        authReason: requireCollegeLogin ? "college_login" : "limit_one_response",
+        message,
       });
     }
 
-    // Check "Limit to 1 response"
+    // If requireCollegeLogin is enabled and user is logged in, verify email domain
+    if (requireCollegeLogin && session?.user?.email) {
+      const userEmail = session.user.email.toLowerCase().trim();
+      const collegeDomain = process.env.COLLEGE_EMAIL_DOMAIN || "avantika.edu.in";
+      if (!userEmail.endsWith(`@${collegeDomain}`) && !userEmail.endsWith(`.${collegeDomain}`)) {
+        return reply.send({
+          id: form.id,
+          publicId: form.publicId,
+          title: form.title,
+          requiresAuth: true,
+          authReason: "invalid_domain",
+          message: `This form is strictly restricted to Avantika University accounts (@${collegeDomain}). Your signed-in account (${userEmail}) is not authorized.`,
+        });
+      }
+    }
+
+    // Check "Limit to 1 response" (when enabled and user is logged in)
     let alreadySubmitted = false;
-    if (parsedSettings.limitOneResponse && session?.user) {
+    if (limitOneResponse && session?.user) {
+      const normalizedEmail = (session.user.email || "").toLowerCase().trim();
       const prevSubmissions = await db
-        .select()
+        .select({ id: schema.formResponses.id })
         .from(schema.formResponses)
         .where(
           and(
             eq(schema.formResponses.formId, form.id),
-            eq(schema.formResponses.respondentId, session.user.id)
+            or(
+              eq(schema.formResponses.respondentId, session.user.id),
+              sql`lower(trim(${schema.formResponses.respondentEmail})) = ${normalizedEmail}`
+            )
           )
         )
         .limit(1);
@@ -138,6 +170,7 @@ export async function submissionRoutes(fastify: FastifyInstance) {
       sections,
       elements: sanitizedElements,
       currentUser: session?.user || null,
+      isDraftPreview: form.status === "draft" && isOwner,
     });
   });
 
@@ -165,14 +198,28 @@ export async function submissionRoutes(fastify: FastifyInstance) {
     const headers = fromNodeHeaders(request.headers);
     const session = await auth.api.getSession({ headers });
 
-    // Enforce form status & deadlines
+    // Parse form settings
+    let formSettings: any = {};
+    try {
+      formSettings = JSON.parse(form.formSettings || "{}");
+    } catch {
+      formSettings = {};
+    }
+
+    // 1. Unpublished drafts cannot accept submissions
+    if (form.status === "draft") {
+      return reply.status(403).send({ error: "This form is currently an unpublished draft and cannot accept submissions." });
+    }
+
+    // 2. Check response collection status (owner toggle)
+    if (formSettings.acceptingResponses === false || form.status === "closed") {
+      return reply.status(400).send({
+        error: formSettings.closedMessage || "This form is closed and no longer accepting submissions.",
+      });
+    }
+
+    // 3. Enforce form status & deadlines
     const now = new Date();
-    if (form.status === "closed" || form.status === "archived") {
-      return reply.status(400).send({ error: "This form is closed and no longer accepting submissions." });
-    }
-    if (form.status === "draft" && session?.user?.id !== form.ownerId) {
-      return reply.status(400).send({ error: "This form is not yet published." });
-    }
     if (form.opensAt && form.opensAt > now) {
       return reply.status(400).send({ error: "This form has not opened yet." });
     }
@@ -180,7 +227,7 @@ export async function submissionRoutes(fastify: FastifyInstance) {
       return reply.status(400).send({ error: "The deadline for this form has passed." });
     }
 
-    // Check response limits
+    // 4. Check response capacity limits
     if (form.maxResponses) {
       const countRes = await db
         .select({ count: sql<number>`count(*)` })
@@ -191,36 +238,68 @@ export async function submissionRoutes(fastify: FastifyInstance) {
       }
     }
 
-    // Parse form settings
-    let formSettings: any = {};
-    try {
-      formSettings = JSON.parse(form.formSettings || "{}");
-    } catch {
-      formSettings = {};
-    }
+    const requireCollegeLogin = Boolean(formSettings.requireCollegeLogin);
+    const limitOneResponse = Boolean(formSettings.limitOneResponse);
 
     // Check College login restriction
-    if (formSettings.requireCollegeLogin && !session?.user) {
-      return reply.status(401).send({ error: "Avantika University authentication is required to submit this form." });
-    }
-
-    // Check "Limit to 1 response"
-    if (formSettings.limitOneResponse && session?.user) {
-      const prev = await db
-        .select()
-        .from(schema.formResponses)
-        .where(
-          and(
-            eq(schema.formResponses.formId, form.id),
-            eq(schema.formResponses.respondentId, session.user.id)
-          )
-        )
-        .limit(1);
-
-      if (prev.length > 0) {
-        return reply.status(400).send({ error: "You have already submitted a response to this form." });
+    if (requireCollegeLogin) {
+      if (!session?.user) {
+        return reply.status(401).send({ error: "Avantika University authentication is required to submit this form." });
+      }
+      const collegeDomain = process.env.COLLEGE_EMAIL_DOMAIN || "avantika.edu.in";
+      const userEmail = (session.user.email || "").toLowerCase().trim();
+      if (!userEmail.endsWith(`@${collegeDomain}`) && !userEmail.endsWith(`.${collegeDomain}`)) {
+        return reply.status(403).send({ error: `This form is strictly restricted to @${collegeDomain} accounts.` });
       }
     }
+
+    // Check "Limit to 1 response" authentication requirement
+    if (limitOneResponse && !session?.user) {
+      return reply.status(401).send({
+        error: requireCollegeLogin
+          ? "Avantika University authentication is required to submit this form."
+          : "Sign in is required to submit this form (limit 1 response per person).",
+      });
+    }
+
+    // Normalized respondent email from verified session
+    const respondentId = session?.user?.id || null;
+    const normalizedEmail = session?.user?.email
+      ? session.user.email.toLowerCase().trim()
+      : null;
+
+    // Concurrency Lock for limitOneResponse to prevent simultaneous submission race conditions
+    let lockKey: string | null = null;
+    if (limitOneResponse && normalizedEmail) {
+      lockKey = `${form.id}:${normalizedEmail}`;
+      if (activeSubmissions.has(lockKey)) {
+        return reply.status(400).send({
+          error: "You have already submitted a response to this form.",
+        });
+      }
+      activeSubmissions.add(lockKey);
+    }
+
+    try {
+      if (limitOneResponse && session?.user && normalizedEmail) {
+        const prev = await db
+          .select({ id: schema.formResponses.id })
+          .from(schema.formResponses)
+          .where(
+            and(
+              eq(schema.formResponses.formId, form.id),
+              or(
+                eq(schema.formResponses.respondentId, session.user.id),
+                sql`lower(trim(${schema.formResponses.respondentEmail})) = ${normalizedEmail}`
+              )
+            )
+          )
+          .limit(1);
+
+        if (prev.length > 0) {
+          return reply.status(400).send({ error: "You have already submitted a response to this form." });
+        }
+      }
 
     // Fetch elements to validate answers and grade quiz
     const elements = await db
@@ -238,6 +317,48 @@ export async function submissionRoutes(fastify: FastifyInstance) {
       const val = submittedAnswers[el.id];
 
       if (el.isRequired) {
+        if (el.type === "mc_grid") {
+          let rows: string[] = [];
+          try {
+            const parsed = typeof el.options === "string" ? JSON.parse(el.options || "{}") : el.options;
+            if (Array.isArray(parsed?.rows)) {
+              rows = parsed.rows.map((r: any) => (typeof r === "string" ? r : r.text));
+            }
+          } catch {}
+          const gridAns = val && typeof val === "object" ? val : {};
+          const allAnswered = rows.length > 0
+            ? rows.every((r) => gridAns[r] !== undefined && gridAns[r] !== null && gridAns[r] !== "")
+            : Object.keys(gridAns).length > 0;
+          if (!allAnswered) {
+            return reply.status(400).send({
+              error: `Question "${el.title || "Required question"}" requires a response in each row.`,
+              elementId: el.id,
+            });
+          }
+          continue;
+        }
+
+        if (el.type === "checkbox_grid") {
+          let rows: string[] = [];
+          try {
+            const parsed = typeof el.options === "string" ? JSON.parse(el.options || "{}") : el.options;
+            if (Array.isArray(parsed?.rows)) {
+              rows = parsed.rows.map((r: any) => (typeof r === "string" ? r : r.text));
+            }
+          } catch {}
+          const gridAns = val && typeof val === "object" ? val : {};
+          const allAnswered = rows.length > 0
+            ? rows.every((r) => Array.isArray(gridAns[r]) && gridAns[r].length > 0)
+            : Object.keys(gridAns).length > 0;
+          if (!allAnswered) {
+            return reply.status(400).send({
+              error: `Question "${el.title || "Required question"}" requires at least one response in each row.`,
+              elementId: el.id,
+            });
+          }
+          continue;
+        }
+
         const isEmpty =
           val === undefined ||
           val === null ||
@@ -248,41 +369,6 @@ export async function submissionRoutes(fastify: FastifyInstance) {
             error: `Question "${el.title || "Required question"}" is required.`,
             elementId: el.id,
           });
-        }
-      }
-
-      // If value is provided, run validation rules
-      if (val !== undefined && val !== null && val !== "" && el.validation) {
-        try {
-          const rule = typeof el.validation === "string" ? JSON.parse(el.validation) : el.validation;
-          const customMsg = rule.customError || "Invalid answer format.";
-
-          if (rule.category === "number") {
-            const num = Number(val);
-            if (isNaN(num)) return reply.status(400).send({ error: customMsg });
-            if (rule.rule === "greater_than" && !(num > Number(rule.val))) return reply.status(400).send({ error: customMsg });
-            if (rule.rule === "less_than" && !(num < Number(rule.val))) return reply.status(400).send({ error: customMsg });
-            if (rule.rule === "between" && !(num >= Number(rule.min) && num <= Number(rule.max))) return reply.status(400).send({ error: customMsg });
-            if (rule.rule === "is_integer" && !Number.isInteger(num)) return reply.status(400).send({ error: customMsg });
-          } else if (rule.category === "text") {
-            const str = String(val);
-            if (rule.rule === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str)) return reply.status(400).send({ error: customMsg });
-            if (rule.rule === "url" && !/^https?:\/\/.+/.test(str)) return reply.status(400).send({ error: customMsg });
-            if (rule.rule === "contains" && !str.includes(rule.val)) return reply.status(400).send({ error: customMsg });
-            if (rule.rule === "does_not_contain" && str.includes(rule.val)) return reply.status(400).send({ error: customMsg });
-            if (rule.rule === "max_length" && str.length > Number(rule.val)) return reply.status(400).send({ error: customMsg });
-            if (rule.rule === "regex" && rule.pattern) {
-              const re = new RegExp(rule.pattern);
-              if (!re.test(str)) return reply.status(400).send({ error: customMsg });
-            }
-          } else if (rule.category === "checkbox") {
-            const arr = Array.isArray(val) ? val : [];
-            if (rule.rule === "at_least" && arr.length < Number(rule.val)) return reply.status(400).send({ error: customMsg });
-            if (rule.rule === "at_most" && arr.length > Number(rule.val)) return reply.status(400).send({ error: customMsg });
-            if (rule.rule === "exactly" && arr.length !== Number(rule.val)) return reply.status(400).send({ error: customMsg });
-          }
-        } catch {
-          // ignore malformed rule
         }
       }
     }
@@ -310,7 +396,7 @@ export async function submissionRoutes(fastify: FastifyInstance) {
             const key = JSON.parse(el.quizAnswerKey);
             const correctAnswers: string[] = key.correctAnswers || [];
 
-            if (["multiple_choice", "dropdown", "linear_scale"].includes(el.type)) {
+            if (["multiple_choice", "dropdown", "linear_scale", "rating"].includes(el.type)) {
               // Single selection match
               isCorrect = correctAnswers.includes(String(rawVal));
               if (isCorrect) scoreAwarded = el.points || 0;
@@ -352,49 +438,54 @@ export async function submissionRoutes(fastify: FastifyInstance) {
       });
     }
 
-    // Insert Form Response
-    const ipHash = crypto
-      .createHash("sha256")
-      .update((request.ip || "127.0.0.1") + (process.env.BETTER_AUTH_SECRET || ""))
-      .digest("hex");
+      // Insert Form Response
+      const ipHash = crypto
+        .createHash("sha256")
+        .update((request.ip || "127.0.0.1") + (process.env.BETTER_AUTH_SECRET || ""))
+        .digest("hex");
 
-    await db.insert(schema.formResponses).values({
-      id: responseId,
-      formId: form.id,
-      respondentId: session?.user?.id || null,
-      respondentEmail: body.respondentEmail || session?.user?.email || null,
-      submittedAt: new Date(),
-      totalScore: form.isQuiz ? totalScore : null,
-      maxScore: form.isQuiz ? maxScore : null,
-      status: "completed",
-      ipHash,
-      userAgent: request.headers["user-agent"] || null,
-    });
+      await db.insert(schema.formResponses).values({
+        id: responseId,
+        formId: form.id,
+        respondentId: (limitOneResponse || requireCollegeLogin) ? respondentId : null,
+        respondentEmail: requireCollegeLogin ? normalizedEmail : null,
+        submittedAt: new Date(),
+        totalScore: form.isQuiz ? totalScore : null,
+        maxScore: form.isQuiz ? maxScore : null,
+        status: "completed",
+        ipHash,
+        userAgent: (request.headers["user-agent"] as string) || null,
+      });
 
-    // Insert Answer Records
-    for (const ans of answerRecordsToInsert) {
-      await db.insert(schema.formAnswers).values(ans);
+      // Insert Answer Records
+      for (const ans of answerRecordsToInsert) {
+        await db.insert(schema.formAnswers).values(ans);
+      }
+
+      // Response confirmation payload
+      const quizSettings = form.quizSettings ? JSON.parse(form.quizSettings) : {};
+      const confirmationMessage =
+        formSettings.confirmationMessage || "Your response has been recorded. Thank you!";
+
+      return reply.status(201).send({
+        success: true,
+        message: confirmationMessage,
+        responseId,
+        isQuiz: form.isQuiz,
+        score:
+          form.isQuiz && quizSettings.immediateRelease
+            ? {
+                totalScore,
+                maxScore,
+                percentage: maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 100,
+              }
+            : null,
+        allowSubmitAnother: limitOneResponse ? false : (formSettings.submitAnotherLink ?? true),
+      });
+    } finally {
+      if (lockKey) {
+        activeSubmissions.delete(lockKey);
+      }
     }
-
-    // Response confirmation payload
-    const quizSettings = form.quizSettings ? JSON.parse(form.quizSettings) : {};
-    const confirmationMessage =
-      formSettings.confirmationMessage || "Your response has been recorded. Thank you!";
-
-    return reply.status(201).send({
-      success: true,
-      message: confirmationMessage,
-      responseId,
-      isQuiz: form.isQuiz,
-      score:
-        form.isQuiz && quizSettings.immediateRelease
-          ? {
-              totalScore,
-              maxScore,
-              percentage: maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 100,
-            }
-          : null,
-      allowSubmitAnother: formSettings.submitAnotherLink ?? true,
-    });
   });
 }

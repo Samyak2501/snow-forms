@@ -16,18 +16,25 @@ export const user = sqliteTable("user", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
 
-export const session = sqliteTable("session", {
-  id: text("id").primaryKey(),
-  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
-  token: text("token").notNull().unique(),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
-  ipAddress: text("ip_address"),
-  userAgent: text("user_agent"),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-});
+export const session = sqliteTable(
+  "session",
+  {
+    id: text("id").primaryKey(),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    token: text("token").notNull().unique(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+  },
+  (table) => ({
+    expiresIdx: index("session_expires_idx").on(table.expiresAt),
+    userIdx: index("session_user_idx").on(table.userId),
+  })
+);
 
 export const account = sqliteTable("account", {
   id: text("id").primaryKey(),
@@ -47,14 +54,20 @@ export const account = sqliteTable("account", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
 
-export const verification = sqliteTable("verification", {
-  id: text("id").primaryKey(),
-  identifier: text("identifier").notNull(),
-  value: text("value").notNull(),
-  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
-  createdAt: integer("created_at", { mode: "timestamp" }),
-  updatedAt: integer("updated_at", { mode: "timestamp" }),
-});
+export const verification = sqliteTable(
+  "verification",
+  {
+    id: text("id").primaryKey(),
+    identifier: text("identifier").notNull(),
+    value: text("value").notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }),
+    updatedAt: integer("updated_at", { mode: "timestamp" }),
+  },
+  (table) => ({
+    expiresIdx: index("verification_expires_idx").on(table.expiresAt),
+  })
+);
 
 // ==========================================
 // 2. COLLEGE EMAIL OTP VERIFICATION TABLE
@@ -78,11 +91,12 @@ export const otpVerification = sqliteTable(
   (table) => ({
     emailIdx: index("otp_email_idx").on(table.email),
     tokenIdx: index("otp_token_idx").on(table.tempToken),
+    expiresIdx: index("otp_expires_idx").on(table.expiresAt),
   })
 );
 
 // ==========================================
-// 3. AU FORMS CORE ENTITIES
+// 3. SNOW FORMS CORE ENTITIES
 // ==========================================
 
 export const forms = sqliteTable(
@@ -95,7 +109,7 @@ export const forms = sqliteTable(
       .references(() => user.id, { onDelete: "cascade" }),
     title: text("title").notNull().default("Untitled Form"),
     description: text("description").default(""),
-    status: text("status").notNull().default("draft"), // 'draft' | 'published' | 'closed' | 'archived'
+    status: text("status").notNull().default("draft"), // 'draft' | 'published' | 'closed'
 
     // Form appearance & theme tokens
     themeSettings: text("theme_settings").notNull().default(
@@ -303,3 +317,28 @@ export const auditLogs = sqliteTable(
     timestampIdx: index("audit_timestamp_idx").on(table.timestamp),
   })
 );
+
+// Media Uploads (Images and Videos uploaded to persistent cloud/local storage)
+export const mediaUploads = sqliteTable(
+  "media_uploads",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    formId: text("form_id").references(() => forms.id, { onDelete: "cascade" }),
+    url: text("url").notNull(),
+    publicId: text("public_id"), // Cloudinary public_id or local filename
+    provider: text("provider").notNull().default("cloudinary"), // 'cloudinary' | 'local'
+    resourceType: text("resource_type").notNull(), // 'image' | 'video'
+    format: text("format"),
+    bytes: integer("bytes"),
+    originalFilename: text("original_filename"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => ({
+    userIdx: index("media_user_idx").on(table.userId),
+    formIdx: index("media_form_idx").on(table.formId),
+  })
+);
+

@@ -37,9 +37,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     try {
       await api.auth.logout();
+    } catch (err) {
+      console.error("Sign-out error:", err);
     } finally {
       setUser(null);
-      window.location.href = "/login";
+      try {
+        sessionStorage.clear();
+      } catch {}
+      window.location.replace("/login");
     }
   };
 

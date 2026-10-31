@@ -25,7 +25,7 @@ export async function requireAuth(
     }
 
     return {
-      user: session.user as AuthenticatedUser,
+      user: session.user as unknown as AuthenticatedUser,
       session: session.session,
     };
   } catch (error) {

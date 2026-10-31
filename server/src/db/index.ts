@@ -16,7 +16,7 @@ if (!url) {
 }
 
 export const client = createClient({
-  url,
+  url: url || "",
   authToken,
 });
 

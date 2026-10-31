@@ -21,15 +21,28 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
       return reply.status(404).send({ error: "Form not found or unauthorized." });
     }
 
+    let formSettings: any = {};
+    try {
+      formSettings = JSON.parse(form[0].formSettings || "{}");
+    } catch {
+      formSettings = {};
+    }
+    const requireCollegeLogin = Boolean(formSettings.requireCollegeLogin);
+
     const responses = await db
       .select()
       .from(schema.formResponses)
       .where(eq(schema.formResponses.formId, id))
       .orderBy(desc(schema.formResponses.submittedAt));
 
+    const sanitizedResponses = responses.map((r) => ({
+      ...r,
+      respondentEmail: requireCollegeLogin ? r.respondentEmail : null,
+    }));
+
     return reply.send({
-      total: responses.length,
-      responses,
+      total: sanitizedResponses.length,
+      responses: sanitizedResponses,
     });
   });
 
@@ -95,11 +108,23 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
           isCorrect: ans?.isCorrect ?? null,
           scoreAwarded: ans?.scoreAwarded ?? 0,
           feedback: ans?.feedback ?? null,
+          scaleSettings: el.scaleSettings ?? null,
         };
       });
 
+    let formSettings: any = {};
+    try {
+      formSettings = JSON.parse(form[0].formSettings || "{}");
+    } catch {
+      formSettings = {};
+    }
+    const requireCollegeLogin = Boolean(formSettings.requireCollegeLogin);
+
     return reply.send({
-      response: responseRecord[0],
+      response: {
+        ...responseRecord[0],
+        respondentEmail: requireCollegeLogin ? responseRecord[0].respondentEmail : null,
+      },
       details,
     });
   });
@@ -252,7 +277,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
             count,
             percentage: nonNullAnswers.length > 0 ? Math.round((count / nonNullAnswers.length) * 100) : 0,
           }));
-        } else if (el.type === "linear_scale") {
+        } else if (el.type === "linear_scale" || el.type === "rating") {
           // Numeric distribution
           const counts: Record<string, number> = {};
           nonNullAnswers.forEach((ans) => {
@@ -264,6 +289,28 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
               rating,
               count,
             }));
+        } else if (["mc_grid", "checkbox_grid"].includes(el.type)) {
+          // Matrix Grid breakdown by row and column
+          const rowStats: Record<string, Record<string, number>> = {};
+          nonNullAnswers.forEach((ans) => {
+            try {
+              const parsed = typeof ans === "string" ? JSON.parse(ans) : ans;
+              if (parsed && typeof parsed === "object") {
+                Object.entries(parsed).forEach(([row, colVal]) => {
+                  if (!rowStats[row]) rowStats[row] = {};
+                  if (Array.isArray(colVal)) {
+                    colVal.forEach((c) => {
+                      rowStats[row][c] = (rowStats[row][c] || 0) + 1;
+                    });
+                  } else if (colVal) {
+                    const c = String(colVal);
+                    rowStats[row][c] = (rowStats[row][c] || 0) + 1;
+                  }
+                });
+              }
+            } catch {}
+          });
+          summaryData = rowStats;
         } else if (["short_answer", "paragraph", "date", "time"].includes(el.type)) {
           // List of recent text answers
           summaryData = nonNullAnswers.slice(0, 50);
@@ -355,6 +402,14 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
       }
     }
 
+    let formSettings: any = {};
+    try {
+      formSettings = JSON.parse(form[0].formSettings || "{}");
+    } catch {
+      formSettings = {};
+    }
+    const requireCollegeLogin = Boolean(formSettings.requireCollegeLogin);
+
     // Build CSV Headers
     const headers = [
       "Submission ID",
@@ -367,10 +422,11 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
     const rows: string[] = [headers.join(",")];
 
     for (const r of responses) {
+      const emailToExport = requireCollegeLogin ? (r.respondentEmail || "") : "";
       const rowData = [
         `"${r.id}"`,
         `"${r.submittedAt.toISOString()}"`,
-        `"${(r.respondentEmail || "").replace(/"/g, '""')}"`,
+        `"${emailToExport.replace(/"/g, '""')}"`,
         ...(form[0].isQuiz ? [r.totalScore ?? 0, r.maxScore ?? 0] : []),
         ...questionElements.map((el) => {
           const val = answerGrid[r.id]?.[el.id] || "";

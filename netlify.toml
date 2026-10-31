@@ -1,0 +1,24 @@
+[build]
+  base = "client"
+  publish = "dist"
+  command = "npm run build"
+
+# Proxy API requests to Render backend
+[[redirects]]
+  from = "/api/*"
+  to = "https://snow-forms-api.onrender.com/api/:splat"
+  status = 200
+  force = true
+
+# Proxy static uploaded media if served from backend
+[[redirects]]
+  from = "/uploads/*"
+  to = "https://snow-forms-api.onrender.com/uploads/:splat"
+  status = 200
+  force = true
+
+# SPA fallback for client-side React Router
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

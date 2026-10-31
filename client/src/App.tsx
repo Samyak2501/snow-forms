@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { Navbar } from "./components/Navbar";
@@ -18,7 +18,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-alabaster dark:bg-neutral-950">
+      <div className="min-h-screen flex items-center justify-center bg-alabaster">
         <div className="w-8 h-8 border-3 border-flamingo border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -31,7 +31,34 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
+const HomeRoute: React.FC = () => {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center bg-alabaster">
+        <div className="w-8 h-8 border-3 border-flamingo border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (user) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <LandingPage />;
+};
+
 export const App: React.FC = () => {
+  useEffect(() => {
+    // Permanently enforce Light Mode
+    document.documentElement.classList.remove("dark");
+    try {
+      localStorage.removeItem("theme");
+      sessionStorage.removeItem("theme");
+    } catch {}
+  }, []);
+
   return (
     <AuthProvider>
       <BrowserRouter>
@@ -54,11 +81,11 @@ export const App: React.FC = () => {
           <Route
             path="*"
             element={
-              <div className="min-h-screen flex flex-col bg-alabaster dark:bg-neutral-950">
+              <div className="min-h-screen flex flex-col bg-alabaster">
                 <Navbar />
                 <div className="flex-1">
                   <Routes>
-                    <Route path="/" element={<LandingPage />} />
+                    <Route path="/" element={<HomeRoute />} />
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/signup" element={<SignupPage />} />
                     <Route path="/verify-otp" element={<VerifyOtpPage />} />

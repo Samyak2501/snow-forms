@@ -9,8 +9,11 @@ import {
   validateCollegeEmail,
 } from "../services/otp.js";
 import { db, schema } from "../db/index.js";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { z } from "zod";
+import { hashPassword } from "better-auth/crypto";
+import crypto from "crypto";
+import { getOAuthConsentUrl, exchangeOAuthCode } from "../services/gmail.js";
 
 export async function authRoutes(fastify: FastifyInstance) {
   // 1. Better Auth catch-all route for standard Better Auth endpoints
@@ -22,20 +25,40 @@ export async function authRoutes(fastify: FastifyInstance) {
         const url = new URL(request.url, `http://${request.headers.host || "localhost:4000"}`);
         const headers = fromNodeHeaders(request.headers);
 
+        let body: string | undefined = undefined;
+        if (request.method !== "GET" && request.method !== "HEAD" && request.body) {
+          body = typeof request.body === "string" ? request.body : JSON.stringify(request.body);
+        }
+
         const req = new Request(url.toString(), {
           method: request.method,
           headers,
-          body:
-            request.body && request.method !== "GET"
-              ? JSON.stringify(request.body)
-              : undefined,
+          body,
         });
 
         const response = await auth.handler(req);
 
         reply.status(response.status);
+
+        // Forward set-cookie headers properly (crucial for clearing session cookies on sign-out)
+        const setCookies =
+          typeof (response.headers as any).getSetCookie === "function"
+            ? (response.headers as any).getSetCookie()
+            : [];
+
+        if (setCookies && setCookies.length > 0) {
+          reply.raw.setHeader("set-cookie", setCookies);
+        } else {
+          const cookieHeader = response.headers.get("set-cookie");
+          if (cookieHeader) {
+            reply.raw.setHeader("set-cookie", cookieHeader);
+          }
+        }
+
         response.headers.forEach((value, key) => {
-          reply.header(key, value);
+          if (key.toLowerCase() !== "set-cookie") {
+            reply.header(key, value);
+          }
         });
 
         const responseText = await response.text();
@@ -155,7 +178,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         }
       });
 
-      const bodyJson = await signUpRes.json();
+      const bodyJson = (await signUpRes.json()) as any;
       return reply.status(201).send({
         success: true,
         message: "Account created and verified successfully!",
@@ -204,27 +227,49 @@ export async function authRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: "User not found." });
       }
 
-      // Better Auth hash password and update account
-      // Hash password using Better Auth password hasher or bcrypt
-      // Better Auth password hashing:
-      // We can invoke auth.api.resetPassword or update account password directly using Better Auth's internal hash
-      // Or sign in via email
-      // Better Auth has auth.api.changePassword or auth.api.resetPassword
-      // Let's use auth.api.signInEmail or update account table:
-      // Actually Better Auth has auth.api.forgetPassword / resetPassword or we can use Better Auth's password hasher
-      // Let's check how Better Auth hashes passwords: it uses scrypt or bcrypt via internal helper
-      // Better Auth password reset API:
-      try {
-        await auth.api.resetPassword({
-          body: {
-            newPassword: password,
-            token: tempToken, // or direct update
-          },
+      // Hash new password using Better Auth's cryptographic hasher
+      const hashedPassword = await hashPassword(password);
+
+      // Check if account record exists for credential provider
+      const existingAccount = await db
+        .select()
+        .from(schema.account)
+        .where(
+          and(
+            eq(schema.account.userId, users[0].id),
+            eq(schema.account.providerId, "credential")
+          )
+        )
+        .limit(1);
+
+      if (existingAccount.length > 0) {
+        await db
+          .update(schema.account)
+          .set({
+            password: hashedPassword,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.account.id, existingAccount[0].id));
+      } else {
+        await db.insert(schema.account).values({
+          id: crypto.randomUUID(),
+          userId: users[0].id,
+          providerId: "credential",
+          accountId: users[0].id,
+          password: hashedPassword,
+          createdAt: new Date(),
+          updatedAt: new Date(),
         });
-      } catch {
-        // Fallback: update account password directly with sha256 or bcrypt
-        // Better Auth uses scrypt/bcrypt, but let's test if resetPassword is built-in
       }
+
+      // Ensure user is marked verified
+      await db
+        .update(schema.user)
+        .set({
+          emailVerified: true,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.user.id, users[0].id));
 
       await consumeTempToken({ email, tempToken, purpose: "password_reset" });
 
@@ -266,5 +311,107 @@ export async function authRoutes(fastify: FastifyInstance) {
         closedForms: closedCount,
       },
     });
+  });
+
+  // 7. Gmail API OAuth 2.0 Authorization Endpoint
+  fastify.get("/api/oauth/google/authorize", async (request, reply) => {
+    try {
+      const proto =
+        (request.headers["x-forwarded-proto"] as string) ||
+        (request.headers.host?.includes("localhost") ? "http" : "https");
+      const redirectUri =
+        process.env.GOOGLE_REDIRECT_URI ||
+        `${proto}://${request.headers.host}/api/oauth/google/callback`;
+
+      const consentUrl = getOAuthConsentUrl(redirectUri);
+      return reply.redirect(consentUrl);
+    } catch (err: any) {
+      return reply.status(500).type("text/html").send(`
+        <div style="font-family:system-ui,-apple-system,sans-serif;padding:40px;max-width:600px;margin:40px auto;border:1px solid #fee2e2;background:#fff5f5;border-radius:12px;">
+          <h2 style="color:#b91c1c;margin-top:0;">OAuth Authorization Setup Error</h2>
+          <p style="color:#374151;font-size:15px;line-height:1.6;">${err.message}</p>
+          <p style="color:#6b7280;font-size:13px;">Please make sure <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> are configured in your environment variables.</p>
+        </div>
+      `);
+    }
+  });
+
+  // 8. Gmail API OAuth 2.0 Callback Endpoint
+  fastify.get("/api/oauth/google/callback", async (request, reply) => {
+    const query = request.query as { code?: string; error?: string };
+
+    if (query.error) {
+      return reply.status(400).type("text/html").send(`
+        <div style="font-family:system-ui,-apple-system,sans-serif;padding:40px;max-width:600px;margin:40px auto;border:1px solid #fee2e2;background:#fff5f5;border-radius:12px;">
+          <h2 style="color:#b91c1c;margin-top:0;">Google OAuth Error</h2>
+          <p style="color:#374151;">Google returned an error during authorization:</p>
+          <pre style="background:#fee2e2;padding:12px;border-radius:6px;color:#991b1b;">${query.error}</pre>
+        </div>
+      `);
+    }
+
+    if (!query.code) {
+      return reply.status(400).type("text/html").send(`
+        <div style="font-family:system-ui,-apple-system,sans-serif;padding:40px;max-width:600px;margin:40px auto;">
+          <h2 style="color:#b91c1c;">Missing Authorization Code</h2>
+          <p>No <code>code</code> parameter received from Google.</p>
+        </div>
+      `);
+    }
+
+    try {
+      const proto =
+        (request.headers["x-forwarded-proto"] as string) ||
+        (request.headers.host?.includes("localhost") ? "http" : "https");
+      const redirectUri =
+        process.env.GOOGLE_REDIRECT_URI ||
+        `${proto}://${request.headers.host}/api/oauth/google/callback`;
+
+      const tokens = await exchangeOAuthCode(query.code, redirectUri);
+
+      if (!tokens.refresh_token) {
+        return reply.type("text/html").send(`
+          <div style="font-family:system-ui,-apple-system,sans-serif;padding:40px;max-width:650px;margin:40px auto;border:1px solid #fed7aa;background:#fffbeb;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.05);">
+            <h2 style="color:#c2410c;margin-top:0;">Notice: No Refresh Token Returned</h2>
+            <p style="color:#374151;line-height:1.6;">Google authenticated successfully, but did not return a new refresh token. This happens if the account already has active authorized access for this Client ID.</p>
+            <p style="color:#374151;line-height:1.6;">To generate a new refresh token, visit <a href="https://myaccount.google.com/permissions" target="_blank" style="color:#2563eb;font-weight:600;">Google Account Security &gt; Third-party apps</a>, remove access for this app, and click authorize again:</p>
+            <div style="margin-top:20px;">
+              <a href="/api/oauth/google/authorize" style="display:inline-block;background:#2563eb;color:white;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:500;">Re-Authorize Application</a>
+            </div>
+          </div>
+        `);
+      }
+
+      return reply.type("text/html").send(`
+        <div style="font-family:system-ui,-apple-system,sans-serif;padding:40px;max-width:680px;margin:40px auto;border:1px solid #bbf7d0;background:#f0fdf4;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.05);">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+            <span style="font-size:32px;">🎉</span>
+            <h2 style="color:#15803d;margin:0;font-size:24px;">Gmail API OAuth 2.0 Success!</h2>
+          </div>
+          <p style="color:#374151;font-size:15px;line-height:1.6;">
+            Google has successfully authorized Gmail message sending permissions.
+          </p>
+          <p style="color:#374151;font-size:15px;font-weight:600;margin-bottom:8px;">
+            Your Refresh Token:
+          </p>
+          <div style="background:#ffffff;border:1px solid #86efac;padding:16px;border-radius:8px;font-family:Consolas,Monaco,monospace;word-break:break-all;font-size:14px;color:#166534;user-select:all;">
+            ${tokens.refresh_token}
+          </div>
+          <div style="margin-top:20px;padding:16px;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;">
+            <p style="color:#111827;font-size:14px;font-weight:600;margin-top:0;margin-bottom:8px;">Next Step:</p>
+            <p style="color:#4b5563;font-size:13px;margin:0;line-height:1.5;">
+              Copy the refresh token above and add it to your Render Environment Variables as <code>GMAIL_REFRESH_TOKEN</code>.
+            </p>
+          </div>
+        </div>
+      `);
+    } catch (err: any) {
+      return reply.status(500).type("text/html").send(`
+        <div style="font-family:system-ui,-apple-system,sans-serif;padding:40px;max-width:600px;margin:40px auto;border:1px solid #fee2e2;background:#fff5f5;border-radius:12px;">
+          <h2 style="color:#b91c1c;margin-top:0;">Failed to Exchange Token</h2>
+          <p style="color:#374151;">${err.message}</p>
+        </div>
+      `);
+    }
   });
 }

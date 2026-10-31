@@ -1,23 +1,10 @@
-import nodemailer from "nodemailer";
 import * as dotenv from "dotenv";
 import path from "path";
+import { sendGmailMessage, SENDER_EMAIL } from "./gmail.js";
 
 dotenv.config();
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 dotenv.config({ path: path.resolve(process.cwd(), "../.env") });
-
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || "smtp.gmail.com",
-  port: parseInt(process.env.SMTP_PORT || "587", 10),
-  secure: (process.env.SMTP_PORT || "587") === "465",
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASSWORD,
-  },
-  tls: {
-    rejectUnauthorized: false,
-  },
-});
 
 export interface SendOtpEmailParams {
   to: string;
@@ -35,7 +22,7 @@ export async function sendOtpEmail({
   expiryMinutes = 5,
 }: SendOtpEmailParams): Promise<boolean> {
   const isSignup = purpose === "signup";
-  const title = isSignup ? "Verify Your Avantika University Email" : "Reset Your AU Forms Password";
+  const title = isSignup ? "Verify Your Avantika University Email" : "Reset Your Snow Forms Password";
   const actionText = isSignup ? "complete your account registration" : "reset your account password";
   const displayName = name ? `Hello ${name},` : "Hello,";
 
@@ -63,12 +50,12 @@ export async function sendOtpEmail({
   <div class="card">
     <div class="header">
       <span class="badge">Avantika University</span>
-      <h1>AU Forms Authentication</h1>
+      <h1>Snow Forms Authentication</h1>
     </div>
     <div class="content">
       <p style="font-size: 16px; line-height: 1.5; margin-top: 0;">${displayName}</p>
       <p style="font-size: 15px; line-height: 1.6; color: #4B5563;">
-        Use the single-use verification code below to ${actionText} on <strong>AU Forms</strong>:
+        Use the single-use verification code below to ${actionText} on <strong>Snow Forms</strong>:
       </p>
       <div class="otp-box">
         <div class="otp-code">${otp}</div>
@@ -88,7 +75,7 @@ export async function sendOtpEmail({
   `.trim();
 
   const text = `
-${title} - Avantika University AU Forms
+${title} - Avantika University Snow Forms
 
 ${displayName}
 
@@ -98,21 +85,22 @@ This single-use code is valid for ${expiryMinutes} minutes (maximum 3 attempts).
 
 If you did not request this email, please ignore it.
 
-Avantika University - AU Forms
+Avantika University - Snow Forms
   `.trim();
 
   try {
-    const fromAddress = process.env.EMAIL_FROM || `AU Forms <${process.env.SMTP_USER}>`;
-    await transporter.sendMail({
-      from: fromAddress,
+    await sendGmailMessage({
       to,
-      subject: `${otp} is your AU Forms verification code`,
+      subject: `${otp} is your Snow Forms verification code`,
       text,
       html,
+      senderName: "Snow Forms",
     });
     return true;
-  } catch (error) {
-    console.error("Failed to send verification email:", error);
+  } catch (error: any) {
+    console.error("[Gmail API Email Service Error]", {
+      message: error?.message,
+    });
     throw error;
   }
 }

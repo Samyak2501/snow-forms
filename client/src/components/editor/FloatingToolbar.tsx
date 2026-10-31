@@ -1,86 +1,86 @@
-import React from "react";
+import React from"react";
 import {
-  PlusCircle,
-  Heading,
-  Image as ImageIcon,
-  Youtube,
-  Split,
-  FolderPlus,
-} from "lucide-react";
+ PlusCircle,
+ Heading,
+ Image as ImageIcon,
+ Youtube,
+ Split,
+ FolderPlus,
+} from"lucide-react";
 
 interface FloatingToolbarProps {
-  onAddQuestion: (type?: string) => void;
-  onAddTitleDesc: () => void;
-  onAddImage: () => void;
-  onAddVideo: () => void;
-  onAddSection: () => void;
+ onAddQuestion: (type?: string) => void;
+ onAddTitleDesc: () => void;
+ onAddImage: () => void;
+ onAddVideo: () => void;
+ onAddSection: () => void;
 }
 
 export const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
-  onAddQuestion,
-  onAddTitleDesc,
-  onAddImage,
-  onAddVideo,
-  onAddSection,
+ onAddQuestion,
+ onAddTitleDesc,
+ onAddImage,
+ onAddVideo,
+ onAddSection,
 }) => {
-  return (
-    <div className="fixed sm:sticky right-4 sm:right-auto bottom-6 sm:bottom-auto sm:top-28 z-40 flex sm:flex-col items-center gap-1.5 p-1.5 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-xl shadow-neutral-200/50 dark:shadow-none">
-      <button
-        onClick={() => onAddQuestion("multiple_choice")}
-        title="Add Question"
-        className="p-2.5 text-neutral-700 dark:text-neutral-200 hover:text-flamingo hover:bg-flamingo/10 rounded-xl transition active:scale-95 group relative"
-      >
-        <PlusCircle className="w-5 h-5" />
-        <span className="hidden sm:group-hover:block absolute left-full ml-2 px-2 py-1 bg-neutral-900 text-white text-[11px] font-medium rounded shadow-lg whitespace-nowrap z-50">
-          Add question
-        </span>
-      </button>
+ return (
+ <div className="fixed sm:sticky right-4 sm:right-auto bottom-6 sm:bottom-auto sm:top-28 z-40 flex sm:flex-col items-center gap-1.5 p-1.5 bg-white border border-neutral-200 rounded-2xl shadow-xl shadow-neutral-200/50">
+ <button
+ onClick={() => onAddQuestion("multiple_choice")}
+ title="Add Question"
+ className="p-2.5 text-neutral-700 hover:text-flamingo hover:bg-flamingo/10 rounded-xl transition active:scale-95 group relative"
+ >
+ <PlusCircle className="w-5 h-5"/>
+ <span className="hidden sm:group-hover:block absolute left-full ml-2 px-2 py-1 bg-neutral-900 text-white text-[11px] font-medium rounded shadow-lg whitespace-nowrap z-50">
+ Add question
+ </span>
+ </button>
 
-      <button
-        onClick={onAddTitleDesc}
-        title="Add Title & Description"
-        className="p-2.5 text-neutral-700 dark:text-neutral-200 hover:text-flamingo hover:bg-flamingo/10 rounded-xl transition active:scale-95 group relative"
-      >
-        <Heading className="w-5 h-5" />
-        <span className="hidden sm:group-hover:block absolute left-full ml-2 px-2 py-1 bg-neutral-900 text-white text-[11px] font-medium rounded shadow-lg whitespace-nowrap z-50">
-          Add title and description
-        </span>
-      </button>
+ <button
+ onClick={onAddTitleDesc}
+ title="Add Title & Description"
+ className="p-2.5 text-neutral-700 hover:text-flamingo hover:bg-flamingo/10 rounded-xl transition active:scale-95 group relative"
+ >
+ <Heading className="w-5 h-5"/>
+ <span className="hidden sm:group-hover:block absolute left-full ml-2 px-2 py-1 bg-neutral-900 text-white text-[11px] font-medium rounded shadow-lg whitespace-nowrap z-50">
+ Add title and description
+ </span>
+ </button>
 
-      <button
-        onClick={onAddImage}
-        title="Add Image Block"
-        className="p-2.5 text-neutral-700 dark:text-neutral-200 hover:text-flamingo hover:bg-flamingo/10 rounded-xl transition active:scale-95 group relative"
-      >
-        <ImageIcon className="w-5 h-5" />
-        <span className="hidden sm:group-hover:block absolute left-full ml-2 px-2 py-1 bg-neutral-900 text-white text-[11px] font-medium rounded shadow-lg whitespace-nowrap z-50">
-          Add image
-        </span>
-      </button>
+ <button
+ onClick={onAddImage}
+ title="Add Image Block"
+ className="p-2.5 text-neutral-700 hover:text-flamingo hover:bg-flamingo/10 rounded-xl transition active:scale-95 group relative"
+ >
+ <ImageIcon className="w-5 h-5"/>
+ <span className="hidden sm:group-hover:block absolute left-full ml-2 px-2 py-1 bg-neutral-900 text-white text-[11px] font-medium rounded shadow-lg whitespace-nowrap z-50">
+ Add image
+ </span>
+ </button>
 
-      <button
-        onClick={onAddVideo}
-        title="Add YouTube Video"
-        className="p-2.5 text-neutral-700 dark:text-neutral-200 hover:text-flamingo hover:bg-flamingo/10 rounded-xl transition active:scale-95 group relative"
-      >
-        <Youtube className="w-5 h-5" />
-        <span className="hidden sm:group-hover:block absolute left-full ml-2 px-2 py-1 bg-neutral-900 text-white text-[11px] font-medium rounded shadow-lg whitespace-nowrap z-50">
-          Add video
-        </span>
-      </button>
+ <button
+ onClick={onAddVideo}
+ title="Add YouTube Video"
+ className="p-2.5 text-neutral-700 hover:text-flamingo hover:bg-flamingo/10 rounded-xl transition active:scale-95 group relative"
+ >
+ <Youtube className="w-5 h-5"/>
+ <span className="hidden sm:group-hover:block absolute left-full ml-2 px-2 py-1 bg-neutral-900 text-white text-[11px] font-medium rounded shadow-lg whitespace-nowrap z-50">
+ Add video
+ </span>
+ </button>
 
-      <div className="w-full h-px sm:w-full bg-neutral-200 dark:bg-neutral-800 my-1 hidden sm:block" />
+ <div className="w-full h-px sm:w-full bg-neutral-200 my-1 hidden sm:block"/>
 
-      <button
-        onClick={onAddSection}
-        title="Add Section (Page Break)"
-        className="p-2.5 text-neutral-700 dark:text-neutral-200 hover:text-flamingo hover:bg-flamingo/10 rounded-xl transition active:scale-95 group relative"
-      >
-        <Split className="w-5 h-5" />
-        <span className="hidden sm:group-hover:block absolute left-full ml-2 px-2 py-1 bg-neutral-900 text-white text-[11px] font-medium rounded shadow-lg whitespace-nowrap z-50">
-          Add section
-        </span>
-      </button>
-    </div>
-  );
+ <button
+ onClick={onAddSection}
+ title="Add Section (Page Break)"
+ className="p-2.5 text-neutral-700 hover:text-flamingo hover:bg-flamingo/10 rounded-xl transition active:scale-95 group relative"
+ >
+ <Split className="w-5 h-5"/>
+ <span className="hidden sm:group-hover:block absolute left-full ml-2 px-2 py-1 bg-neutral-900 text-white text-[11px] font-medium rounded shadow-lg whitespace-nowrap z-50">
+ Add section
+ </span>
+ </button>
+ </div>
+ );
 };

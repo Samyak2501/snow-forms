@@ -14,7 +14,11 @@ export interface FormItem {
   publicId: string;
   title: string;
   description: string | null;
-  status: "draft" | "published" | "closed" | "archived";
+  status: "draft" | "published" | "closed";
+  isDraft?: boolean;
+  isPublished?: boolean;
+  isAcceptingResponses?: boolean;
+  formSettings?: any;
   isQuiz: boolean;
   responseCount: number;
   opensAt: string | null;
@@ -43,6 +47,7 @@ export interface FormElement {
     | "checkboxes"
     | "dropdown"
     | "linear_scale"
+    | "rating"
     | "mc_grid"
     | "checkbox_grid"
     | "file_upload"
@@ -64,13 +69,35 @@ export interface FormElement {
   quizAnswerKey?: any;
 }
 
+import { authClient } from "./auth-client";
+
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+  data?: any;
+
+  constructor(message: string, status: number, data?: any, code?: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.data = data;
+    this.code = code || (typeof data === "object" ? data?.code : undefined);
+    Object.setPrototypeOf(this, ApiError.prototype);
+  }
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (options.body && !(options.body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+  }
+  if (options.headers) {
+    Object.assign(headers, options.headers);
+  }
+
   const res = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
+    headers,
     credentials: "include", // for session cookies
   });
 
@@ -85,10 +112,12 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
   if (!res.ok) {
     const errorMsg =
-      (typeof data === "object" && data?.error) ||
+      (typeof data === "object" && (data?.message || data?.error?.message || data?.error)) ||
       (typeof data === "string" && data) ||
       `Request failed with status ${res.status}`;
-    throw new Error(errorMsg);
+    const code =
+      typeof data === "object" ? (data?.code || data?.error?.code) : undefined;
+    throw new ApiError(errorMsg, res.status, data, code);
   }
 
   return data as T;
@@ -123,9 +152,15 @@ export const api = {
     },
 
     logout: async () => {
-      return request<{ success: boolean }>("/api/auth/sign-out", {
-        method: "POST",
-      });
+      try {
+        await authClient.signOut();
+      } catch (err) {
+        console.warn("authClient.signOut failed, falling back to direct sign-out request", err);
+        await request<{ success: boolean }>("/api/auth/sign-out", {
+          method: "POST",
+        });
+      }
+      return { success: true };
     },
 
     getMe: () =>
@@ -154,14 +189,13 @@ export const api = {
           published: number;
           draft: number;
           closed: number;
-          archived: number;
           totalResponses: number;
         };
       }>(`/api/forms?${q.toString()}`);
     },
 
-    create: (data: { title: string; description?: string; isQuiz?: boolean }) =>
-      request<{ id: string; publicId: string; title: string }>("/api/forms", {
+    create: (data: { title?: string; description?: string; isQuiz?: boolean; template?: string }) =>
+      request<{ id: string; publicId: string; title: string; status?: string }>("/api/forms", {
         method: "POST",
         body: JSON.stringify(data),
       }),
@@ -205,6 +239,32 @@ export const api = {
       request<{ success: boolean }>(`/api/forms/${id}`, {
         method: "DELETE",
       }),
+
+    publish: (id: string) =>
+      request<{
+        success: boolean;
+        message: string;
+        status: "published";
+        publicId: string;
+        publicUrl: string;
+        acceptingResponses: boolean;
+      }>(`/api/forms/${id}/publish`, {
+        method: "POST",
+      }),
+
+    unpublish: (id: string) =>
+      request<{ success: boolean; message: string; status: "draft" }>(`/api/forms/${id}/unpublish`, {
+        method: "POST",
+      }),
+
+    toggleResponses: (id: string, acceptingResponses: boolean, closedMessage?: string) =>
+      request<{ success: boolean; acceptingResponses: boolean; status: string; message: string }>(
+        `/api/forms/${id}/toggle-responses`,
+        {
+          method: "POST",
+          body: JSON.stringify({ acceptingResponses, closedMessage }),
+        }
+      ),
   },
 
   // Public Form Submissions
@@ -327,5 +387,115 @@ export const api = {
       }),
 
     getExportCsvUrl: (formId: string) => `/api/forms/${formId}/export/csv`,
+  },
+
+  // Media Uploads
+  media: {
+    uploadForForm: (
+      formId: string,
+      file: File,
+      onProgress?: (percent: number) => void
+    ): Promise<{
+      success: boolean;
+      url: string;
+      publicId: string;
+      provider: string;
+      resourceType: "image" | "video";
+      format?: string;
+      bytes?: number;
+      originalFilename?: string;
+    }> => {
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `/api/forms/${formId}/upload`);
+        xhr.withCredentials = true;
+
+        if (xhr.upload && onProgress) {
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+              const percent = Math.round((e.loaded / e.total) * 100);
+              onProgress(percent);
+            }
+          };
+        }
+
+        xhr.onload = () => {
+          try {
+            const data = JSON.parse(xhr.responseText);
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve(data);
+            } else {
+              reject(new Error(data.error || "Upload failed"));
+            }
+          } catch {
+            reject(new Error(`Upload failed with status ${xhr.status}`));
+          }
+        };
+
+        xhr.onerror = () => reject(new Error("Network error during file upload"));
+
+        const formData = new FormData();
+        formData.append("file", file);
+        xhr.send(formData);
+      });
+    },
+
+    uploadGeneric: (
+      file: File,
+      onProgress?: (percent: number) => void
+    ): Promise<{
+      success: boolean;
+      url: string;
+      publicId: string;
+      provider: string;
+      resourceType: "image" | "video";
+      format?: string;
+      bytes?: number;
+      originalFilename?: string;
+    }> => {
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `/api/upload`);
+        xhr.withCredentials = true;
+
+        if (xhr.upload && onProgress) {
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+              const percent = Math.round((e.loaded / e.total) * 100);
+              onProgress(percent);
+            }
+          };
+        }
+
+        xhr.onload = () => {
+          try {
+            const data = JSON.parse(xhr.responseText);
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve(data);
+            } else {
+              reject(new Error(data.error || "Upload failed"));
+            }
+          } catch {
+            reject(new Error(`Upload failed with status ${xhr.status}`));
+          }
+        };
+
+        xhr.onerror = () => reject(new Error("Network error during file upload"));
+
+        const formData = new FormData();
+        formData.append("file", file);
+        xhr.send(formData);
+      });
+    },
+
+    getStatus: () =>
+      request<{
+        cloudinaryConfigured: boolean;
+        provider: string;
+        maxImageSizeMB: number;
+        maxVideoSizeMB: number;
+        supportedImageFormats: string[];
+        supportedVideoFormats: string[];
+      }>("/api/upload/status"),
   },
 };

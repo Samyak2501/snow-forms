@@ -69,7 +69,7 @@ async function runProofOfConcept() {
     publicId: testPublicId,
     ownerId: dbUsers[0].id,
     title: "PoC Verification Form",
-    description: "Testing schema co-existence between Better Auth and AU Forms",
+    description: "Testing schema co-existence between Better Auth and Snow Forms",
     status: "draft",
     createdAt: new Date(),
     updatedAt: new Date(),

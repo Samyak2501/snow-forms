@@ -12,7 +12,7 @@ const BASE = "http://localhost:4000";
 
 async function runE2ETest() {
   console.log("=============================================================");
-  console.log("       AU FORMS END-TO-END SYSTEM INTEGRATION TEST           ");
+  console.log("      SNOW FORMS END-TO-END SYSTEM INTEGRATION TEST          ");
   console.log("=============================================================");
 
   // 1. Non-college domain rejection test
@@ -125,7 +125,7 @@ async function runE2ETest() {
   const sessionCookie = setCookie.split(";")[0];
 
   // 6. Test Form Creation
-  console.log("\n6. Creating an AU Form with Quiz Mode...");
+  console.log("\n6. Creating a Snow Form with Quiz Mode...");
   const createFormRes = await fetch(`${BASE}/api/forms`, {
     method: "POST",
     headers: {
