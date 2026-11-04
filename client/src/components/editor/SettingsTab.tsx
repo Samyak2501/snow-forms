@@ -129,6 +129,45 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ form, onChange }) => {
 
  {form.isQuiz && (
  <div className="mt-5 space-y-4 text-xs animate-in fade-in">
+          {/* Auto-submit after tab switches */}
+          <div className="p-3.5 bg-neutral-50 rounded-xl border border-neutral-200 space-y-2">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <label className="font-semibold text-neutral-900 block text-xs">
+                  Auto-submit after tab switches
+                </label>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Automatically submit the quiz when the student switches tabs or leaves the quiz page the specified number of times.
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <input
+                  type="number"
+                  min="0"
+                  max="50"
+                  value={quizSettings.tabSwitchLimit ?? 0}
+                  onChange={(e) => {
+                    const val = Math.max(0, parseInt(e.target.value, 10) || 0);
+                    updateQuizSettings("tabSwitchLimit", val);
+                  }}
+                  className="w-16 px-2.5 py-1.5 text-xs text-center font-bold border border-neutral-300 rounded-lg focus:outline-none focus:border-flamingo focus:ring-1 focus:ring-flamingo bg-white"
+                />
+                <span className="text-xs text-neutral-500 font-medium">times</span>
+              </div>
+            </div>
+            <p className="text-[11px] text-neutral-500 italic">
+              {(quizSettings.tabSwitchLimit ?? 0) === 0 ? (
+                <span className="text-muted-foreground font-normal">
+                  0 = Feature disabled. Students can switch tabs without automatic submission.
+                </span>
+              ) : (
+                <span className="text-amber-600 font-medium">
+                  Active: The quiz will automatically submit after {quizSettings.tabSwitchLimit ?? 0} detected tab switch{(quizSettings.tabSwitchLimit ?? 0) === 1 ? "" : "es"}.
+                </span>
+              )}
+            </p>
+          </div>
+
  <div>
  <label className="font-semibold text-neutral-800 block mb-2">
  Release grades

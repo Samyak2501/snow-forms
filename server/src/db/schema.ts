@@ -248,6 +248,8 @@ export const formResponses = sqliteTable(
     status: text("status").notNull().default("completed"), // 'completed' | 'draft'
     ipHash: text("ip_hash"),
     userAgent: text("user_agent"),
+    submissionTrigger: text("submission_trigger").notNull().default("manual"), // 'manual' | 'tab_switch_limit'
+    tabSwitchCount: integer("tab_switch_count").notNull().default(0),
   },
   (table) => ({
     formIdx: index("responses_form_idx").on(table.formId),

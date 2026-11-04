@@ -301,6 +301,8 @@ export const api = {
       payload: {
         answers: Record<string, any>;
         respondentEmail?: string;
+        submissionTrigger?: "manual" | "tab_switch_limit";
+        tabSwitchCount?: number;
       }
     ) =>
       request<{
@@ -308,6 +310,8 @@ export const api = {
         message: string;
         responseId: string;
         isQuiz: boolean;
+        submissionTrigger?: string;
+        tabSwitchCount?: number;
         score?: {
           totalScore: number;
           maxScore: number;

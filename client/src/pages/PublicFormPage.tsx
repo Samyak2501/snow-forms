@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from"react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, Link } from"react-router-dom";
 import { api, FormElement, FormSection } from"../lib/api";
 import { useAuth } from"../context/AuthContext";
@@ -51,6 +51,19 @@ export const PublicFormPage: React.FC = () => {
  const [showClearModal, setShowClearModal] = useState(false);
  const [formResetKey, setFormResetKey] = useState(0);
  const [hoveredRating, setHoveredRating] = useState<Record<string, number | null>>({});
+
+  // Tab switch monitoring state & refs
+  const [tabSwitchCount, setTabSwitchCount] = useState<number>(0);
+  const [tabSwitchWarning, setTabSwitchWarning] = useState<string | null>(null);
+  const [autoSubmittedDueToTabSwitch, setAutoSubmittedDueToTabSwitch] = useState<boolean>(false);
+
+  const answersRef = useRef(answers);
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
+
+  const isSubmittingRef = useRef(false);
+  const wasHiddenRef = useRef(false);
 
  // Submission Success State
  const [submitted, setSubmitted] = useState(false);

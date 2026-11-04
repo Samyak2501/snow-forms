@@ -3,7 +3,11 @@ const path = require('path');
 const crypto = require('crypto');
 
 const siteId = process.env.NETLIFY_SITE_ID || 'e103d2f3-e98c-4462-83f5-5beb7a655a20';
-const token = process.env.NETLIFY_AUTH_TOKEN || 'nfp_MX1gNGJF1wu8esdt2fQSRfYdznVuWfcAab95';
+const token = process.env.NETLIFY_AUTH_TOKEN;
+if (!token) {
+  console.error('ERROR: NETLIFY_AUTH_TOKEN environment variable is required to deploy.');
+  process.exit(1);
+}
 const distDir = path.resolve(__dirname, '..', 'client', 'dist');
 
 function getFiles(dir, base = '') {

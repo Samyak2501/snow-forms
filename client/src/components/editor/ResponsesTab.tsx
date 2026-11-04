@@ -19,6 +19,7 @@ import {
  Eye,
  FileSpreadsheet,
  Star,
+  AlertTriangle,
 } from"lucide-react";
 import {
  PieChart,
@@ -482,7 +483,13 @@ export const ResponsesTab: React.FC<ResponsesTabProps> = ({ form, onStatusToggle
  </button>
  </div>
 
- <div className="flex items-center gap-4 text-muted-foreground">
+ <div className="flex items-center gap-3 sm:gap-4 flex-wrap text-muted-foreground">
+            {currentDetail?.response?.submissionTrigger === "tab_switch_limit" && (
+              <span className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 text-xs font-semibold flex items-center gap-1.5" title="Auto-submitted due to exceeding allowed tab switches">
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
+                Auto-submitted ({currentDetail.response.tabSwitchCount ?? 0} tab switch{(currentDetail.response.tabSwitchCount ?? 0) === 1 ? "" : "es"})
+              </span>
+            )}
  {currentDetail?.response?.respondentEmail && (
  <span className="flex items-center gap-1.5 text-neutral-800">
  <Mail className="w-3.5 h-3.5 text-flamingo"/>

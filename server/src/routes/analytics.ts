@@ -415,7 +415,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
       "Submission ID",
       "Timestamp",
       "Respondent Email",
-      ...(form[0].isQuiz ? ["Score", "Max Score"] : []),
+      ...(form[0].isQuiz ? ["Score", "Max Score", "Submission Trigger", "Tab Switches"] : []),
       ...questionElements.map((el) => `"${(el.title || "Question").replace(/"/g, '""')}"`),
     ];
 
@@ -427,7 +427,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
         `"${r.id}"`,
         `"${r.submittedAt.toISOString()}"`,
         `"${emailToExport.replace(/"/g, '""')}"`,
-        ...(form[0].isQuiz ? [r.totalScore ?? 0, r.maxScore ?? 0] : []),
+        ...(form[0].isQuiz ? [r.totalScore ?? 0, r.maxScore ?? 0, `"${(r as any).submissionTrigger || "manual"}"`, (r as any).tabSwitchCount ?? 0] : []),
         ...questionElements.map((el) => {
           const val = answerGrid[r.id]?.[el.id] || "";
           return `"${val.replace(/"/g, '""')}"`;

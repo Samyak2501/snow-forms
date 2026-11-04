@@ -180,6 +180,8 @@ export async function submissionRoutes(fastify: FastifyInstance) {
     const body = request.body as {
       answers: Record<string, any>; // elementId -> value
       respondentEmail?: string;
+      submissionTrigger?: "manual" | "tab_switch_limit";
+      tabSwitchCount?: number;
     };
 
     const formRecords = await db
@@ -308,67 +310,72 @@ export async function submissionRoutes(fastify: FastifyInstance) {
       .where(eq(schema.formElements.formId, form.id));
 
     const submittedAnswers = body.answers || {};
+    const isTabSwitchAutoSubmit = Boolean(
+      body.submissionTrigger === "tab_switch_limit" && form.isQuiz
+    );
 
-    // Validate Required and Data Constraints
-    for (const el of elements) {
-      // Skip static non-question elements
-      if (["title_desc", "image", "video"].includes(el.type)) continue;
+    // Validate Required and Data Constraints (skipped if auto-submitted due to tab-switch limit)
+    if (!isTabSwitchAutoSubmit) {
+      for (const el of elements) {
+        // Skip static non-question elements
+        if (["title_desc", "image", "video"].includes(el.type)) continue;
 
-      const val = submittedAnswers[el.id];
+        const val = submittedAnswers[el.id];
 
-      if (el.isRequired) {
-        if (el.type === "mc_grid") {
-          let rows: string[] = [];
-          try {
-            const parsed = typeof el.options === "string" ? JSON.parse(el.options || "{}") : el.options;
-            if (Array.isArray(parsed?.rows)) {
-              rows = parsed.rows.map((r: any) => (typeof r === "string" ? r : r.text));
+        if (el.isRequired) {
+          if (el.type === "mc_grid") {
+            let rows: string[] = [];
+            try {
+              const parsed = typeof el.options === "string" ? JSON.parse(el.options || "{}") : el.options;
+              if (Array.isArray(parsed?.rows)) {
+                rows = parsed.rows.map((r: any) => (typeof r === "string" ? r : r.text));
+              }
+            } catch {}
+            const gridAns = val && typeof val === "object" ? val : {};
+            const allAnswered = rows.length > 0
+              ? rows.every((r) => gridAns[r] !== undefined && gridAns[r] !== null && gridAns[r] !== "")
+              : Object.keys(gridAns).length > 0;
+            if (!allAnswered) {
+              return reply.status(400).send({
+                error: `Question "${el.title || "Required question"}" requires a response in each row.`,
+                elementId: el.id,
+              });
             }
-          } catch {}
-          const gridAns = val && typeof val === "object" ? val : {};
-          const allAnswered = rows.length > 0
-            ? rows.every((r) => gridAns[r] !== undefined && gridAns[r] !== null && gridAns[r] !== "")
-            : Object.keys(gridAns).length > 0;
-          if (!allAnswered) {
+            continue;
+          }
+
+          if (el.type === "checkbox_grid") {
+            let rows: string[] = [];
+            try {
+              const parsed = typeof el.options === "string" ? JSON.parse(el.options || "{}") : el.options;
+              if (Array.isArray(parsed?.rows)) {
+                rows = parsed.rows.map((r: any) => (typeof r === "string" ? r : r.text));
+              }
+            } catch {}
+            const gridAns = val && typeof val === "object" ? val : {};
+            const allAnswered = rows.length > 0
+              ? rows.every((r) => Array.isArray(gridAns[r]) && gridAns[r].length > 0)
+              : Object.keys(gridAns).length > 0;
+            if (!allAnswered) {
+              return reply.status(400).send({
+                error: `Question "${el.title || "Required question"}" requires at least one response in each row.`,
+                elementId: el.id,
+              });
+            }
+            continue;
+          }
+
+          const isEmpty =
+            val === undefined ||
+            val === null ||
+            val === "" ||
+            (Array.isArray(val) && val.length === 0);
+          if (isEmpty) {
             return reply.status(400).send({
-              error: `Question "${el.title || "Required question"}" requires a response in each row.`,
+              error: `Question "${el.title || "Required question"}" is required.`,
               elementId: el.id,
             });
           }
-          continue;
-        }
-
-        if (el.type === "checkbox_grid") {
-          let rows: string[] = [];
-          try {
-            const parsed = typeof el.options === "string" ? JSON.parse(el.options || "{}") : el.options;
-            if (Array.isArray(parsed?.rows)) {
-              rows = parsed.rows.map((r: any) => (typeof r === "string" ? r : r.text));
-            }
-          } catch {}
-          const gridAns = val && typeof val === "object" ? val : {};
-          const allAnswered = rows.length > 0
-            ? rows.every((r) => Array.isArray(gridAns[r]) && gridAns[r].length > 0)
-            : Object.keys(gridAns).length > 0;
-          if (!allAnswered) {
-            return reply.status(400).send({
-              error: `Question "${el.title || "Required question"}" requires at least one response in each row.`,
-              elementId: el.id,
-            });
-          }
-          continue;
-        }
-
-        const isEmpty =
-          val === undefined ||
-          val === null ||
-          val === "" ||
-          (Array.isArray(val) && val.length === 0);
-        if (isEmpty) {
-          return reply.status(400).send({
-            error: `Question "${el.title || "Required question"}" is required.`,
-            elementId: el.id,
-          });
         }
       }
     }
@@ -455,6 +462,8 @@ export async function submissionRoutes(fastify: FastifyInstance) {
         status: "completed",
         ipHash,
         userAgent: (request.headers["user-agent"] as string) || null,
+        submissionTrigger: isTabSwitchAutoSubmit ? "tab_switch_limit" : "manual",
+        tabSwitchCount: Number(body.tabSwitchCount) || 0,
       });
 
       // Insert Answer Records
@@ -472,6 +481,8 @@ export async function submissionRoutes(fastify: FastifyInstance) {
         message: confirmationMessage,
         responseId,
         isQuiz: form.isQuiz,
+        submissionTrigger: isTabSwitchAutoSubmit ? "tab_switch_limit" : "manual",
+        tabSwitchCount: Number(body.tabSwitchCount) || 0,
         score:
           form.isQuiz && quizSettings.immediateRelease
             ? {
