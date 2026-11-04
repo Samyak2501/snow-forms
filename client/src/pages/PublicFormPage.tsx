@@ -3,9 +3,10 @@ import { useParams, useNavigate, Link } from"react-router-dom";
 import { api, FormElement, FormSection } from"../lib/api";
 import { useAuth } from"../context/AuthContext";
 import {
- CheckCircle2,
- AlertCircle,
- Clock,
+  CheckCircle2,
+  AlertCircle,
+  AlertTriangle,
+  Clock,
  ArrowRight,
  ArrowLeft,
  RotateCcw,
@@ -120,7 +121,95 @@ export const PublicFormPage: React.FC = () => {
  );
  }, [answers, otherInputs, publicId, formData, submitted]);
 
- const handleConfirmClearForm = () => {
+  // Initialize switch count from localStorage once formData is loaded
+  useEffect(() => {
+    if (!publicId || !formData?.isQuiz) return;
+    const key = `au_quiz_tab_switches_${publicId}`;
+    const saved = localStorage.getItem(key);
+    if (saved) {
+      const parsed = parseInt(saved, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        setTabSwitchCount(parsed);
+      }
+    }
+  }, [publicId, formData?.isQuiz]);
+
+  const triggerTabSwitchAutoSubmit = async (finalCount: number) => {
+    if (isSubmittingRef.current || submitted || !publicId) return;
+    isSubmittingRef.current = true;
+    setSubmitting(true);
+    setError(null);
+    setTabSwitchWarning(null);
+
+    try {
+      const res = await api.public.submit(publicId, {
+        answers: answersRef.current,
+        respondentEmail: formData?.formSettings?.requireCollegeLogin ? user?.email : undefined,
+        submissionTrigger: "tab_switch_limit",
+        tabSwitchCount: finalCount,
+      });
+
+      // Clear draft & switch counter
+      localStorage.removeItem(`au_draft_${publicId}`);
+      localStorage.removeItem(`au_quiz_tab_switches_${publicId}`);
+
+      setAutoSubmittedDueToTabSwitch(true);
+      setSubmitted(true);
+      setSubmissionResult(res);
+    } catch (err: any) {
+      console.error("Auto-submission error:", err);
+      setError(err.message || "Failed to auto-submit quiz.");
+    } finally {
+      setSubmitting(false);
+      isSubmittingRef.current = false;
+    }
+  };
+
+  // Tab-switch monitoring via Page Visibility API
+  useEffect(() => {
+    if (!formData?.isQuiz) return;
+    const tabLimit = Number(formData.quizSettings?.tabSwitchLimit || 0);
+    if (tabLimit <= 0) return;
+    if (submitted || formData.isDraftPreview || formData.isClosed || formData.alreadySubmitted) return;
+
+    const handleVisibilityChange = () => {
+      if (submitted || isSubmittingRef.current) return;
+
+      if (document.hidden || document.visibilityState === "hidden") {
+        if (!wasHiddenRef.current) {
+          wasHiddenRef.current = true;
+          setTabSwitchCount((prev) => {
+            const nextCount = prev + 1;
+            if (publicId) {
+              localStorage.setItem(`au_quiz_tab_switches_${publicId}`, String(nextCount));
+            }
+            if (nextCount >= tabLimit) {
+              triggerTabSwitchAutoSubmit(nextCount);
+            }
+            return nextCount;
+          });
+        }
+      } else if (document.visibilityState === "visible") {
+        if (wasHiddenRef.current) {
+          wasHiddenRef.current = false;
+          const currentCount = parseInt(localStorage.getItem(`au_quiz_tab_switches_${publicId}`) || "0", 10);
+          if (currentCount < tabLimit) {
+            const remaining = tabLimit - currentCount;
+            setTabSwitchWarning(
+              `Warning! You have left the quiz page. Your tab-switch count is ${currentCount} out of ${tabLimit}. Switching tabs ${remaining} more time${remaining === 1 ? "" : "s"} will automatically submit your quiz.`
+            );
+          }
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [formData, submitted, publicId]);
+
+  const handleConfirmClearForm = () => {
  setAnswers({});
  setOtherInputs({});
  setCurrentSectionIndex(0);
@@ -329,10 +418,13 @@ export const PublicFormPage: React.FC = () => {
  const res = await api.public.submit(publicId, {
  answers,
  respondentEmail: formData?.formSettings?.requireCollegeLogin ? user?.email : undefined,
+ submissionTrigger: "manual",
+ tabSwitchCount,
  });
 
- // Clear draft
+ // Clear draft & tab switch counter
  localStorage.removeItem(`au_draft_${publicId}`);
+ localStorage.removeItem(`au_quiz_tab_switches_${publicId}`);
 
  setSubmitted(true);
  setSubmissionResult(res);
@@ -473,6 +565,21 @@ export const PublicFormPage: React.FC = () => {
  <p className="text-sm text-neutral-600 leading-relaxed mb-6">
  {submissionResult.message ||"Your response has been recorded. Thank you!"}
  </p>
+
+        {/* Tab-switch auto-submit alert */}
+        {(autoSubmittedDueToTabSwitch || submissionResult?.submissionTrigger === "tab_switch_limit") && (
+          <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 mb-6 text-left flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-bold text-amber-900">
+                Your quiz has been automatically submitted because you exceeded the allowed number of tab switches.
+              </p>
+              <p className="text-[11px] text-amber-700 mt-1">
+                All answers entered up to the moment of automatic submission were successfully recorded and scored.
+              </p>
+            </div>
+          </div>
+        )}
 
  {/* Quiz Score Box if available */}
  {submissionResult.score && (
@@ -1185,6 +1292,34 @@ export const PublicFormPage: React.FC = () => {
  </div>
  </div>
  )}
+
+      {/* Student Tab Switch Warning Modal */}
+      {tabSwitchWarning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="w-full max-w-md bg-white rounded-2xl border border-amber-200 shadow-2xl p-6 text-center space-y-4 animate-in zoom-in-95">
+            <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto">
+              <AlertTriangle className="w-6 h-6 text-amber-600" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-neutral-900">
+                Tab Switch Detected
+              </h3>
+              <p className="text-xs text-neutral-600 mt-2 leading-relaxed">
+                {tabSwitchWarning}
+              </p>
+            </div>
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setTabSwitchWarning(null)}
+                className="w-full py-2.5 px-4 bg-flamingo hover:bg-flamingo-600 text-white text-xs font-bold rounded-xl shadow-sm transition active:scale-95"
+              >
+                I Understand & Continue Quiz
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
  {/* Footer info */}
  <div className="text-center text-[11px] text-muted-foreground pt-6">
