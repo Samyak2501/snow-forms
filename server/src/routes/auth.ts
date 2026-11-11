@@ -13,7 +13,16 @@ import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { hashPassword } from "better-auth/crypto";
 import crypto from "crypto";
-import { getOAuthConsentUrl, exchangeOAuthCode } from "../services/gmail.js";
+import {
+  getOAuthConsentUrl,
+  exchangeOAuthCode,
+  setGmailTokens,
+  getGmailStatus,
+  verifyGmailService,
+  persistRefreshTokenToRender,
+  sendGmailMessage,
+  SENDER_EMAIL,
+} from "../services/gmail.js";
 
 export function validatePasswordStrength(password: string): { valid: boolean; error?: string } {
   if (!password || password.length < 8) {
@@ -354,7 +363,84 @@ export async function authRoutes(fastify: FastifyInstance) {
     });
   });
 
-  // 7. Gmail API OAuth 2.0 Authorization Endpoint
+  // 7. Gmail API Health Status Endpoint
+  fastify.get("/api/health/gmail", async (request, reply) => {
+    try {
+      const status = getGmailStatus();
+      const verification = await verifyGmailService();
+
+      const isHealthy = status.configured && verification.ok;
+      return reply.status(isHealthy ? 200 : 503).send({
+        status: isHealthy ? "healthy" : "action_required",
+        sender: SENDER_EMAIL,
+        configured: status.configured,
+        details: {
+          hasClientId: status.hasClientId,
+          hasClientSecret: status.hasClientSecret,
+          hasRefreshToken: status.hasRefreshToken,
+          tokenValid: verification.ok,
+          tokenExpiresInSeconds: verification.tokenExpiresInSeconds ?? 0,
+        },
+        error: verification.error || null,
+        reauthorizeUrl: `${request.protocol}://${request.headers.host}/api/oauth/google/authorize`,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      return reply.status(500).send({
+        status: "error",
+        error: err.message,
+      });
+    }
+  });
+
+  // 8. Test Send Email Endpoint
+  fastify.all("/api/oauth/google/test-send", async (request, reply) => {
+    try {
+      const targetEmail = SENDER_EMAIL;
+      const testTimestamp = new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" });
+
+      const result = await sendGmailMessage({
+        to: targetEmail,
+        subject: `Snow Forms - Gmail API Verification (${testTimestamp})`,
+        text: `Snow Forms Gmail API verification successful!\n\nSent to: ${targetEmail}\nTimestamp: ${testTimestamp}\nSender: ${SENDER_EMAIL}\nStatus: Active and sending normally.`,
+        html: `
+          <div style="font-family:system-ui,-apple-system,sans-serif;max-width:540px;margin:20px auto;padding:24px;border:1px solid #e5e7eb;border-radius:12px;background:#ffffff;">
+            <div style="border-bottom:2px solid #F16222;padding-bottom:12px;margin-bottom:16px;">
+              <span style="font-size:12px;font-weight:700;color:#F16222;text-transform:uppercase;letter-spacing:1px;">Snow Forms &bull; Avantika University</span>
+              <h2 style="margin:6px 0 0;color:#111827;font-size:20px;">Gmail API Integration Verified</h2>
+            </div>
+            <p style="color:#374151;font-size:15px;line-height:1.6;">
+              This confirms that the Gmail API OAuth 2.0 integration on <strong>Snow Forms</strong> is functioning properly and authorized to send transactional emails.
+            </p>
+            <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px 16px;margin:16px 0;font-size:13px;color:#4b5563;">
+              <p style="margin:4px 0;"><strong>Sender:</strong> ${SENDER_EMAIL}</p>
+              <p style="margin:4px 0;"><strong>Recipient:</strong> ${targetEmail}</p>
+              <p style="margin:4px 0;"><strong>Delivered At:</strong> ${testTimestamp} IST</p>
+            </div>
+            <p style="color:#10b981;font-weight:600;font-size:14px;margin-bottom:0;">
+              &check; OAuth 2.0 Access Token is valid and ready for registration OTPs.
+            </p>
+          </div>
+        `,
+        senderName: "Snow Forms Verification",
+      });
+
+      return reply.send({
+        success: true,
+        messageId: result.id,
+        recipient: targetEmail,
+        timestamp: testTimestamp,
+      });
+    } catch (err: any) {
+      fastify.log.error(err);
+      return reply.status(500).send({
+        success: false,
+        error: err.message,
+      });
+    }
+  });
+
+  // 9. Gmail API OAuth 2.0 Authorization Endpoint
   fastify.get("/api/oauth/google/authorize", async (request, reply) => {
     try {
       const proto =
@@ -377,7 +463,7 @@ export async function authRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // 8. Gmail API OAuth 2.0 Callback Endpoint
+  // 10. Gmail API OAuth 2.0 Callback Endpoint
   fastify.get("/api/oauth/google/callback", async (request, reply) => {
     const query = request.query as { code?: string; error?: string };
 
@@ -387,6 +473,9 @@ export async function authRoutes(fastify: FastifyInstance) {
           <h2 style="color:#b91c1c;margin-top:0;">Google OAuth Error</h2>
           <p style="color:#374151;">Google returned an error during authorization:</p>
           <pre style="background:#fee2e2;padding:12px;border-radius:6px;color:#991b1b;">${query.error}</pre>
+          <div style="margin-top:20px;">
+            <a href="/api/oauth/google/authorize" style="display:inline-block;background:#2563eb;color:white;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:500;">Try Again</a>
+          </div>
         </div>
       `);
     }
@@ -414,8 +503,12 @@ export async function authRoutes(fastify: FastifyInstance) {
         return reply.type("text/html").send(`
           <div style="font-family:system-ui,-apple-system,sans-serif;padding:40px;max-width:650px;margin:40px auto;border:1px solid #fed7aa;background:#fffbeb;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.05);">
             <h2 style="color:#c2410c;margin-top:0;">Notice: No Refresh Token Returned</h2>
-            <p style="color:#374151;line-height:1.6;">Google authenticated successfully, but did not return a new refresh token. This happens if the account already has active authorized access for this Client ID.</p>
-            <p style="color:#374151;line-height:1.6;">To generate a new refresh token, visit <a href="https://myaccount.google.com/permissions" target="_blank" style="color:#2563eb;font-weight:600;">Google Account Security &gt; Third-party apps</a>, remove access for this app, and click authorize again:</p>
+            <p style="color:#374151;line-height:1.6;">
+              Google authenticated successfully, but did not include a new refresh token. This happens if the account already has active authorized access for this Client ID.
+            </p>
+            <p style="color:#374151;line-height:1.6;">
+              To force Google to issue a new refresh token, visit <a href="https://myaccount.google.com/permissions" target="_blank" style="color:#2563eb;font-weight:600;">Google Account Security &gt; Third-party apps</a>, remove access for Snow Forms, and then click below:
+            </p>
             <div style="margin-top:20px;">
               <a href="/api/oauth/google/authorize" style="display:inline-block;background:#2563eb;color:white;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:500;">Re-Authorize Application</a>
             </div>
@@ -423,34 +516,135 @@ export async function authRoutes(fastify: FastifyInstance) {
         `);
       }
 
+      // 1. Immediately activate tokens in running server memory
+      setGmailTokens(tokens.refresh_token, tokens.access_token, tokens.expires_in);
+
+      // 2. Persist to Render environment variables if RENDER_API_KEY is configured
+      const persistStatus = await persistRefreshTokenToRender(tokens.refresh_token);
+
       return reply.type("text/html").send(`
-        <div style="font-family:system-ui,-apple-system,sans-serif;padding:40px;max-width:680px;margin:40px auto;border:1px solid #bbf7d0;background:#f0fdf4;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.05);">
-          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
-            <span style="font-size:32px;">🎉</span>
-            <h2 style="color:#15803d;margin:0;font-size:24px;">Gmail API OAuth 2.0 Success!</h2>
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Snow Forms - Gmail Authorization Complete</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #f3f4f6; margin: 0; padding: 32px 16px; color: #1f2937; }
+            .card { max-width: 640px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e5e7eb; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08); overflow: hidden; }
+            .header { background: #065f46; color: white; padding: 28px 32px; }
+            .header h1 { margin: 8px 0 0; font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+            .content { padding: 32px; }
+            .badge { display: inline-block; padding: 4px 10px; background: rgba(255,255,255,0.2); border-radius: 9999px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+            .status-box { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 16px; margin: 20px 0; }
+            .status-title { font-weight: 600; color: #166534; font-size: 14px; margin-bottom: 6px; }
+            .status-desc { font-size: 13px; color: #374151; margin: 0; line-height: 1.5; }
+            .token-container { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; margin: 16px 0; font-family: monospace; font-size: 12px; word-break: break-all; color: #0f172a; position: relative; }
+            .btn { display: inline-block; padding: 10px 18px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: background 0.15s ease; }
+            .btn-primary { background: #F16222; color: white; }
+            .btn-primary:hover { background: #d94e10; }
+            .btn-secondary { background: #e5e7eb; color: #1f2937; margin-left: 8px; }
+            .btn-secondary:hover { background: #d1d5db; }
+            .action-card { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px; padding: 20px; margin-top: 24px; }
+            #testResult { margin-top: 12px; font-size: 13px; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <div class="header">
+              <span class="badge">Avantika University &bull; Snow Forms</span>
+              <h1>&check; Gmail API OAuth 2.0 Success</h1>
+            </div>
+            <div class="content">
+              <p style="font-size:15px;line-height:1.6;margin-top:0;">
+                The sender account <strong>${SENDER_EMAIL}</strong> has successfully granted Gmail sending permissions to Snow Forms.
+              </p>
+
+              <div class="status-box">
+                <div class="status-title">&bull; In-Memory Status: Active Immediately</div>
+                <p class="status-desc">
+                  The new token is already active in backend memory. You can immediately send verification OTPs without waiting for a server restart.
+                </p>
+                <div class="status-title" style="margin-top:12px;">&bull; Render Persistence Status:</div>
+                <p class="status-desc">
+                  ${persistStatus.message}
+                </p>
+              </div>
+
+              <div>
+                <label style="font-size:13px;font-weight:600;color:#374151;">Refresh Token:</label>
+                <div class="token-container" id="tokenBox">${tokens.refresh_token}</div>
+                <button type="button" class="btn btn-secondary" onclick="copyToken()" id="copyBtn">Copy Token</button>
+              </div>
+
+              <div class="action-card">
+                <h3 style="margin:0 0 8px;color:#9a3412;font-size:16px;">Verify Email Delivery Now</h3>
+                <p style="margin:0 0 16px;font-size:13px;color:#431407;line-height:1.5;">
+                  Click below to dispatch an automated test email to <strong>${SENDER_EMAIL}</strong> through the Gmail API:
+                </p>
+                <button type="button" class="btn btn-primary" id="testBtn" onclick="runEmailTest()">
+                  Send Test Verification Email
+                </button>
+                <div id="testResult"></div>
+              </div>
+
+              <div style="margin-top:28px;padding-top:20px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
+                <a href="https://snow-forms.netlify.app" target="_blank" style="color:#2563eb;font-size:14px;font-weight:500;text-decoration:none;">
+                  &larr; Open Snow Forms Frontend
+                </a>
+                <a href="/api/health/gmail" target="_blank" style="color:#6b7280;font-size:13px;text-decoration:none;">
+                  Check Health Endpoint &rarr;
+                </a>
+              </div>
+            </div>
           </div>
-          <p style="color:#374151;font-size:15px;line-height:1.6;">
-            Google has successfully authorized Gmail message sending permissions.
-          </p>
-          <p style="color:#374151;font-size:15px;font-weight:600;margin-bottom:8px;">
-            Your Refresh Token:
-          </p>
-          <div style="background:#ffffff;border:1px solid #86efac;padding:16px;border-radius:8px;font-family:Consolas,Monaco,monospace;word-break:break-all;font-size:14px;color:#166534;user-select:all;">
-            ${tokens.refresh_token}
-          </div>
-          <div style="margin-top:20px;padding:16px;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;">
-            <p style="color:#111827;font-size:14px;font-weight:600;margin-top:0;margin-bottom:8px;">Next Step:</p>
-            <p style="color:#4b5563;font-size:13px;margin:0;line-height:1.5;">
-              Copy the refresh token above and add it to your Render Environment Variables as <code>GMAIL_REFRESH_TOKEN</code>.
-            </p>
-          </div>
-        </div>
+
+          <script>
+            function copyToken() {
+              const text = document.getElementById('tokenBox').innerText;
+              navigator.clipboard.writeText(text).then(() => {
+                const btn = document.getElementById('copyBtn');
+                btn.innerText = 'Copied!';
+                setTimeout(() => { btn.innerText = 'Copy Token'; }, 2500);
+              });
+            }
+
+            async function runEmailTest() {
+              const btn = document.getElementById('testBtn');
+              const resBox = document.getElementById('testResult');
+              btn.disabled = true;
+              btn.innerText = 'Sending email...';
+              resBox.innerHTML = '<span style="color:#6b7280;">Contacting Gmail API...</span>';
+
+              try {
+                const res = await fetch('/api/oauth/google/test-send', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                  resBox.innerHTML = '<div style="background:#f0fdf4;border:1px solid #86efac;color:#166534;padding:12px;border-radius:6px;margin-top:10px;"><strong>&check; Success!</strong> Verification email sent to ' + data.recipient + '<br/><span style="font-size:11px;color:#15803d;">Message ID: ' + data.messageId + '</span></div>';
+                  btn.innerText = '&check; Delivered';
+                } else {
+                  resBox.innerHTML = '<div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;padding:12px;border-radius:6px;margin-top:10px;"><strong>Error:</strong> ' + (data.error || 'Failed to send') + '</div>';
+                  btn.disabled = false;
+                  btn.innerText = 'Retry Test';
+                }
+              } catch (e) {
+                resBox.innerHTML = '<div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;padding:12px;border-radius:6px;margin-top:10px;"><strong>Network Error:</strong> ' + e.message + '</div>';
+                btn.disabled = false;
+                btn.innerText = 'Retry Test';
+              }
+            }
+          </script>
+        </body>
+        </html>
       `);
     } catch (err: any) {
       return reply.status(500).type("text/html").send(`
         <div style="font-family:system-ui,-apple-system,sans-serif;padding:40px;max-width:600px;margin:40px auto;border:1px solid #fee2e2;background:#fff5f5;border-radius:12px;">
           <h2 style="color:#b91c1c;margin-top:0;">Failed to Exchange Token</h2>
           <p style="color:#374151;">${err.message}</p>
+          <div style="margin-top:20px;">
+            <a href="/api/oauth/google/authorize" style="display:inline-block;background:#2563eb;color:white;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:500;">Try Authorizing Again</a>
+          </div>
         </div>
       `);
     }

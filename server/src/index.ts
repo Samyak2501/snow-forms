@@ -102,6 +102,8 @@ async function start() {
         endpoints: {
           health: "/health",
           apiHealth: "/api/health",
+          gmailHealth: "/api/health/gmail",
+          gmailAuthorize: "/api/oauth/google/authorize",
           docs: "Snow Forms Backend REST API"
         },
         time: new Date().toISOString(),
