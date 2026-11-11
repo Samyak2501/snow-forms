@@ -370,6 +370,9 @@ export async function authRoutes(fastify: FastifyInstance) {
       const verification = await verifyGmailService();
 
       const isHealthy = status.configured && verification.ok;
+      const proto =
+        (request.headers["x-forwarded-proto"] as string) ||
+        (request.headers.host?.includes("localhost") ? "http" : "https");
       return reply.status(isHealthy ? 200 : 503).send({
         status: isHealthy ? "healthy" : "action_required",
         sender: SENDER_EMAIL,
@@ -382,7 +385,7 @@ export async function authRoutes(fastify: FastifyInstance) {
           tokenExpiresInSeconds: verification.tokenExpiresInSeconds ?? 0,
         },
         error: verification.error || null,
-        reauthorizeUrl: `${request.protocol}://${request.headers.host}/api/oauth/google/authorize`,
+        reauthorizeUrl: `${proto}://${request.headers.host}/api/oauth/google/authorize`,
         timestamp: new Date().toISOString(),
       });
     } catch (err: any) {
